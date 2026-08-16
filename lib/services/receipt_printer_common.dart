@@ -28,6 +28,13 @@ Future<(ReceiptContent, List<int>)> prepareReceiptBytes(
       logoBytes = null;
     }
   }
+  // Logo préparé hors du thread UI (isolate via compute()) puis mis en
+  // cache : le traitement lourd n'est fait qu'une fois.
+  await ReceiptBuilder.prepareLogoCached(
+    logoBytes: logoBytes,
+    logoPath: s.logoPath,
+    maxWidth: ReceiptBuilder.logoMaxWidth(s.format),
+  );
   final content = ReceiptBuilder.buildContent(invoice, s,
       logoBytes: logoBytes);
   final bytes = await ReceiptBuilder.buildEscPosBytes(content);

@@ -59,6 +59,9 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
   void _onSettingsChanged() => _reload();
 
   void _reload() {
+    // Garde mounted : le notifier peut encore notifier après le dispose
+    // de l'écran (ex. pendant une transition de route).
+    if (!mounted) return;
     setState(() {
       _contentFuture = _loadContent();
     });
@@ -74,6 +77,14 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
         logoBytes = null;
       }
     }
+    // Logo préparé hors du thread UI (isolate via compute()) puis mis en
+    // cache : le traitement lourd n'est fait qu'une fois, jamais à chaque
+    // rechargement de l'aperçu.
+    await ReceiptBuilder.prepareLogoCached(
+      logoBytes: logoBytes,
+      logoPath: settings.logoPath,
+      maxWidth: ReceiptBuilder.logoMaxWidth(settings.format),
+    );
     return ReceiptBuilder.buildContent(widget.invoice, settings,
         logoBytes: logoBytes);
   }

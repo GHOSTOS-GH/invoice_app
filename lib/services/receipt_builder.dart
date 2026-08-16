@@ -6,9 +6,11 @@
 //  - l'aperçu à l'écran (police monospace, même alignement)
 // Ainsi ce qui est affiché dans l'aperçu est identique à l'impression.
 
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 
 import '../models/invoice.dart';
@@ -174,6 +176,92 @@ class ReceiptBuilder {
     }
   }
 
+  /// Largeur cible (pixels) du logo selon le format du papier.
+  static int logoMaxWidth(ReceiptPaperFormat format) =>
+      format == ReceiptPaperFormat.mm58 ? 200 : 320;
+
+  // ------------------------------------------------------------------
+  // Cache du logo + traitement hors du thread UI (isolate)
+  // ------------------------------------------------------------------
+  // Le décodage + redimensionnement + binarisation du logo sont coûteux
+  // et bloquaient le thread UI à chaque appel de buildContent(). Le
+  // résultat est désormais mis en cache (tant que le fichier ne change
+  // pas) et le premier traitement est déporté sur un isolate via
+  // compute() (package:flutter/foundation.dart).
+
+  /// Image du logo prête à imprimer, indexée par clé de cache.
+  static final Map<String, img.Image> _logoImageCache = {};
+
+  /// Logo encodé en PNG pour l'aperçu, indexé par clé de cache.
+  static final Map<String, Uint8List> _logoPngCache = {};
+
+  /// Clé de cache du logo : chemin du fichier + date de modification +
+  /// largeur cible. La date de modification invalide le cache quand
+  /// l'utilisateur change d'image (toujours copiée au même chemin).
+  static String? _logoCacheKey(String? logoPath, int maxWidth) {
+    if (logoPath == null) return null;
+    try {
+      final stat = File(logoPath).statSync();
+      return '$logoPath|${stat.modified.millisecondsSinceEpoch}|$maxWidth';
+    } catch (_) {
+      // Fichier introuvable (ex. tests, logo supprimé) : clé stable
+      // basée sur le chemin, le traitement sera rejoué à chaque appel.
+      return '$logoPath|$maxWidth';
+    }
+  }
+
+  /// Prépare le logo (décodage, redimensionnement, binarisation) sur un
+  /// isolate via compute() afin de ne pas bloquer le thread UI, avec
+  /// cache : le traitement lourd n'est fait qu'une fois par logo.
+  ///
+  /// Retourne l'image prête à imprimer et son encodage PNG (aperçu).
+  /// Le cache est rempli ici puis relu par buildContent() (même clé).
+  static Future<(img.Image?, Uint8List?)> prepareLogoCached({
+    required Uint8List? logoBytes,
+    required String? logoPath,
+    required int maxWidth,
+  }) async {
+    if (logoBytes == null) return (null, null);
+    final key = _logoCacheKey(logoPath, maxWidth);
+    if (key != null) {
+      final cached = _logoImageCache[key];
+      if (cached != null) return (cached, _logoPngCache[key]);
+    }
+    // Traitement lourd sur un isolate (decodeImage, copyResize, boucle
+    // pixel par pixel). Seuls des types transmissibles circulent entre
+    // isolates : on renvoie les octets PNG, jamais l'objet img.Image
+    // (non « sendable » : l'image contient des références circulaires).
+    final pngBytes = await compute(
+      _prepareLogoPngIsolate,
+      (logoBytes, maxWidth),
+      debugLabel: 'ReceiptBuilder.prepareLogo',
+    );
+    if (pngBytes == null) return (null, null);
+    img.Image? image;
+    try {
+      // Petit PNG monochrome : le re-décodage sur le thread UI est rapide.
+      image = img.decodeImage(pngBytes);
+    } catch (_) {
+      image = null;
+    }
+    if (key != null && image != null) {
+      _logoImageCache[key] = image;
+      _logoPngCache[key] = pngBytes;
+    }
+    return (image, pngBytes);
+  }
+
+  /// Point d'entrée de l'isolate : prépare le logo puis l'encode en PNG.
+  static Uint8List? _prepareLogoPngIsolate((Uint8List?, int) args) {
+    final image = prepareLogo(args.$1, args.$2);
+    if (image == null) return null;
+    try {
+      return Uint8List.fromList(img.encodePng(image));
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ------------------------------------------------------------------
   // Plan du reçu
   // ------------------------------------------------------------------
@@ -187,16 +275,27 @@ class ReceiptBuilder {
     final width = settings.format.charsPerLine;
     final plan = <Object>[];
 
-    // Logo : préparé pour l'impression et pour l'aperçu.
+    // Logo : préparé pour l'impression et pour l'aperçu. Le résultat est
+    // mis en cache (clé = chemin + date de modification + largeur) pour
+    // ne pas refaire le traitement lourd à chaque appel de buildContent().
     img.Image? logoImage;
     Uint8List? logoPngBytes;
     if (settings.showLogo) {
-      logoImage = prepareLogo(logoBytes, settings.format == ReceiptPaperFormat.mm58 ? 200 : 320);
-      if (logoImage != null) {
-        try {
-          logoPngBytes = Uint8List.fromList(img.encodePng(logoImage));
-        } catch (_) {
-          logoPngBytes = null;
+      final maxWidth = logoMaxWidth(settings.format);
+      final cacheKey = _logoCacheKey(settings.logoPath, maxWidth);
+      if (cacheKey != null && _logoImageCache.containsKey(cacheKey)) {
+        logoImage = _logoImageCache[cacheKey];
+        logoPngBytes = _logoPngCache[cacheKey];
+      } else {
+        logoImage = prepareLogo(logoBytes, maxWidth);
+        if (logoImage != null) {
+          if (cacheKey != null) _logoImageCache[cacheKey] = logoImage;
+          try {
+            logoPngBytes = Uint8List.fromList(img.encodePng(logoImage));
+            if (cacheKey != null) _logoPngCache[cacheKey] = logoPngBytes;
+          } catch (_) {
+            logoPngBytes = null;
+          }
         }
       }
     }

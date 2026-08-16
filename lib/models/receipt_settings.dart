@@ -137,4 +137,52 @@ class ReceiptSettings {
         showFooter: json['showFooter'] as bool? ?? true,
         showBarcode: json['showBarcode'] as bool? ?? true,
       );
+
+  // ------------------------------------------------------------------
+  // Égalité par valeur
+  // ------------------------------------------------------------------
+  // Deux instances aux mêmes valeurs sont considérées égales. Indispensable
+  // pour ValueNotifier (settingsNotifier) : sans cela, chaque nouvelle
+  // instance issue de fromJson() est jugée « différente » et déclenche
+  // notifyListeners() à chaque chargement, même sans changement réel
+  // (cause de la boucle infinie à l'ouverture de l'aperçu du reçu).
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReceiptSettings &&
+          other.shopName == shopName &&
+          other.shopAddress == shopAddress &&
+          other.shopPhone == shopPhone &&
+          other.shopNinea == shopNinea &&
+          other.footerMessage == footerMessage &&
+          other.cashierName == cashierName &&
+          other.logoPath == logoPath &&
+          other.format == format &&
+          other.showLogo == showLogo &&
+          other.showShopName == showShopName &&
+          other.showAddress == showAddress &&
+          other.showPhone == showPhone &&
+          other.showNinea == showNinea &&
+          other.showFooter == showFooter &&
+          other.showBarcode == showBarcode;
+
+  @override
+  int get hashCode => Object.hash(
+        shopName,
+        shopAddress,
+        shopPhone,
+        shopNinea,
+        footerMessage,
+        cashierName,
+        logoPath,
+        format,
+        showLogo,
+        showShopName,
+        showAddress,
+        showPhone,
+        showNinea,
+        showFooter,
+        showBarcode,
+      );
 }

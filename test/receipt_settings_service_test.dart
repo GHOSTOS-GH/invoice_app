@@ -65,6 +65,26 @@ void main() {
       expect(ReceiptSettingsService.settingsNotifier.value.shopName,
           'Ma Boutique');
     });
+
+    test(
+        'loadSettings ne notifie pas quand la valeur n\'a pas changé '
+        '(anti-boucle infinie de l\'aperçu)', () async {
+      final service = ReceiptSettingsService();
+      await service.saveSettings(const ReceiptSettings(shopName: 'Boutique'));
+
+      var notified = 0;
+      ReceiptSettingsService.settingsNotifier
+          .addListener(() => notified++);
+
+      // Rechargements successifs avec la même valeur : l'écran d'aperçu
+      // (abonné au notifier) ne doit PAS être renotifié, sinon on retombe
+      // dans la boucle _reload → _loadContent → loadSettings → notify → …
+      await service.loadSettings();
+      await service.loadSettings();
+      await service.loadSettings();
+      expect(notified, 0,
+          reason: 'le notifier doit rester silencieux si rien ne change');
+    });
   });
 
   group('prepareReceiptBytes', () {

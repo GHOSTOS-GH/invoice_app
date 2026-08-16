@@ -2,7 +2,11 @@
 // Tests du module reçu thermique : plan de lignes (partagé aperçu /
 // impression) et génération des octets ESC/POS.
 
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:invoice_app/models/invoice.dart';
 import 'package:invoice_app/models/receipt_settings.dart';
 import 'package:invoice_app/services/receipt_builder.dart';
@@ -103,6 +107,66 @@ void main() {
         expect(bytes.length, greaterThan(100),
             reason: 'flux trop court pour ${format.label}');
         expect(bytes, contains(0x1B)); // commandes ESC présentes
+      }
+    });
+  });
+
+  group('ReceiptBuilder logo : cache + isolate', () {
+    // Petite image PNG réelle, encodée en mémoire.
+    Uint8List samplePng() {
+      final src = img.Image(width: 60, height: 40);
+      img.fill(src, color: img.ColorRgb8(180, 60, 60));
+      return Uint8List.fromList(img.encodePng(src));
+    }
+
+    test('prepareLogoCached traite le logo puis le met en cache', () async {
+      final png = samplePng();
+
+      final (logo1, png1) = await ReceiptBuilder.prepareLogoCached(
+        logoBytes: png,
+        logoPath: '/fake/logo.png',
+        maxWidth: 200,
+      );
+      expect(logo1, isNotNull, reason: 'le logo doit être préparé');
+      expect(png1, isNotNull, reason: 'le PNG d\'aperçu doit être encodé');
+
+      // Second appel avec la même clé : résultat mis en cache, le
+      // traitement lourd (decodeImage, copyResize, pixel par pixel) n'est
+      // PAS refait — même instance retournée.
+      final (logo2, png2) = await ReceiptBuilder.prepareLogoCached(
+        logoBytes: png,
+        logoPath: '/fake/logo.png',
+        maxWidth: 200,
+      );
+      expect(identical(logo1, logo2), isTrue,
+          reason: 'l\'image doit venir du cache');
+      expect(identical(png1, png2), isTrue);
+    });
+
+    test('buildContent lit le logo depuis le cache (pas de re-traitement)',
+        () {
+      final dir = Directory.systemTemp.createTempSync('logo_cache_test');
+      try {
+        final logoFile = File('${dir.path}/logo.png');
+        final src = img.Image(width: 40, height: 40);
+        img.fill(src, color: img.ColorRgb8(50, 50, 50));
+        logoFile.writeAsBytesSync(img.encodePng(src));
+
+        final settings =
+            ReceiptSettings(logoPath: logoFile.path, showLogo: true);
+        final content1 = ReceiptBuilder.buildContent(sampleInvoice(), settings,
+            logoBytes: logoFile.readAsBytesSync());
+        final content2 = ReceiptBuilder.buildContent(sampleInvoice(), settings,
+            logoBytes: logoFile.readAsBytesSync());
+
+        expect(content1.logoImage, isNotNull);
+        expect(content1.logoPngBytes, isNotNull);
+        // Même chemin de logo → même clé de cache → même instance,
+        // le traitement lourd n'est pas refait au 2e appel.
+        expect(identical(content1.logoImage, content2.logoImage), isTrue);
+        expect(identical(content1.logoPngBytes, content2.logoPngBytes), isTrue);
+      } finally {
+        dir.deleteSync(recursive: true);
       }
     });
   });

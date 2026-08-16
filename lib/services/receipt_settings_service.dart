@@ -38,7 +38,19 @@ class ReceiptSettingsService {
         settings = ReceiptSettings.defaults();
       }
     }
-    settingsNotifier.value = settings;
+    // N'écrit dans le notifier QUE si la valeur a réellement changé
+    // (égalité par valeur de ReceiptSettings). Sans cette garde, chaque
+    // chargement créerait une nouvelle instance jugée « différente » par
+    // ValueNotifier → notifyListeners() → rechargement → boucle infinie
+    // à l'ouverture de l'aperçu du reçu.
+    // N'écrit dans le notifier QUE si la valeur a réellement changé
+    // (égalité par valeur de ReceiptSettings). Sans cette garde, chaque
+    // chargement créerait une nouvelle instance jugée « différente » par
+    // ValueNotifier → notifyListeners() → rechargement → boucle infinie
+    // à l'ouverture de l'aperçu du reçu.
+    if (settingsNotifier.value != settings) {
+      settingsNotifier.value = settings;
+    }
     return settings;
   }
 
