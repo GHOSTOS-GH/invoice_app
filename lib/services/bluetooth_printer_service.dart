@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/invoice.dart';
@@ -26,6 +27,16 @@ const Duration kBluetoothChunkDelay = Duration(milliseconds: 25);
 /// Délai maximal d'attente d'une écriture avant de considérer que
 /// l'imprimante ne répond plus.
 const Duration kBluetoothWriteTimeout = Duration(seconds: 15);
+
+/// Court délai après connect() avant de revérifier isConnected : filet de
+/// sécurité quand le plugin renvoie un faux « non connecté » alors que le
+/// socket est en réalité ouvert.
+const Duration kBluetoothConnectSettleDelay = Duration(milliseconds: 300);
+
+/// Résultat d'une tentative de connexion : [connected] indique si le
+/// socket est ouvert, [alreadyConnected] si le plugin a rejeté la
+/// tentative car un socket résiduel était encore ouvert.
+typedef BluetoothConnectAttempt = ({bool connected, bool alreadyConnected});
 
 /// Permission Bluetooth refusée (Android 12+ : BLUETOOTH_SCAN /
 /// BLUETOOTH_CONNECT). Message actionnable invitant à activer la
@@ -106,10 +117,92 @@ class BluetoothPrinterService {
 
   // ---------- Connexion ----------
 
+  /// Connexion directe (bas niveau). Le plugin natif répond `true`
+  /// (bool) quand la connexion est établie ; les échecs remontent en
+  /// PlatformException (« connect_error »…).
   Future<bool> connect(BluetoothDevice device) async =>
-      (await _printer.connect(device)) == BlueThermalPrinter.CONNECTED;
+      (await _printer.connect(device)) == true;
 
   Future<void> disconnect() => _printer.disconnect();
+
+  /// Déconnexion « best effort » : ignore l'erreur native « not
+  /// connected » (socket déjà fermé). Utilisée avant toute reconnexion.
+  Future<void> _disconnectQuietly() async {
+    try {
+      await disconnect();
+    } on PlatformException catch (e) {
+      if (e.code == 'disconnection_error' &&
+          (e.message ?? '').toLowerCase().contains('not connected')) {
+        return; // déjà déconnecté : rien à faire.
+      }
+      rethrow;
+    }
+  }
+
+  /// Tente une connexion directe à [device] en absorbant l'erreur native
+  /// « already connected » (socket résiduel) : dans ce cas, déconnecte et
+  /// retourne (connected: false, alreadyConnected: true) pour que
+  /// connectSafely() puisse réessayer. Les autres erreurs sont propagées
+  /// telles quelles (permissions, appareil introuvable…).
+  ///
+  /// Après une connexion établie, attend un court délai puis revérifie
+  /// isConnected : le plugin renvoie parfois un faux « non connecté »
+  /// juste après connect() alors que le socket est en réalité ouvert.
+  Future<BluetoothConnectAttempt> _attemptConnect(
+      BluetoothDevice device) async {
+    bool connected;
+    var alreadyConnected = false;
+    try {
+      connected = await connect(device);
+    } on PlatformException catch (e) {
+      if (e.code == 'connect_error' &&
+          (e.message ?? '').toLowerCase().contains('already connected')) {
+        // Socket résiduel non fermé : on le libère, connectSafely()
+        // réessaiera automatiquement une fois.
+        alreadyConnected = true;
+        connected = false;
+      } else {
+        rethrow;
+      }
+    }
+    if (!connected) {
+      return (connected: false, alreadyConnected: alreadyConnected);
+    }
+
+    // Filet de sécurité : laisse le socket se stabiliser puis revérifie
+    // avant de décider si la connexion est réellement établie.
+    await Future<void>.delayed(kBluetoothConnectSettleDelay);
+    final stillConnected = await isConnected;
+    return (connected: stillConnected, alreadyConnected: false);
+  }
+
+  /// Connexion robuste à [device], réutilisée par la feuille de sélection
+  /// de l'imprimante et par imprimerFacture().
+  ///
+  /// 1. Si un socket existe déjà (isConnected), le ferme d'abord via
+  ///    disconnect() pour éviter l'erreur native « already connected »
+  ///    quand un socket précédent n'a pas été proprement fermé.
+  /// 2. Tente connect(device) ; si le plugin signale « already connected »,
+  ///    déconnecte puis réessaie automatiquement une fois.
+  /// 3. Après connect(), attend un court délai puis revérifie isConnected
+  ///    avant de conclure (faux « non connecté » possible du plugin).
+  ///
+  /// Retourne true si le socket est ouvert, false sinon.
+  Future<bool> connectSafely(BluetoothDevice device) async {
+    // 1. Déconnexion préalable si un socket existe déjà.
+    if (await isConnected) {
+      await _disconnectQuietly();
+    }
+
+    // 2. Première tentative.
+    var attempt = await _attemptConnect(device);
+    if (!attempt.connected && attempt.alreadyConnected) {
+      // Socket résiduel libéré : réessaie une fois automatiquement.
+      await _disconnectQuietly();
+      attempt = await _attemptConnect(device);
+    }
+    return attempt.connected;
+  }
 
   // ---------- Imprimante par défaut ----------
 
@@ -197,14 +290,13 @@ class BluetoothPrinterService {
     }
 
     try {
-      // Connexion si nécessaire, puis envoi des données.
-      final connected = await isConnected;
-      if (!connected) {
-        final ok = await connect(device);
-        if (!ok) {
-          throw StateError(
-              "Connexion à « ${device.name ?? mac} » impossible. Vérifiez que l'imprimante est allumée et à proximité.");
-        }
+      // Connexion robuste (déconnexion préalable si nécessaire, gestion
+      // du socket résiduel « already connected », re-vérification après
+      // un court délai), puis envoi des données.
+      final ok = await connectSafely(device);
+      if (!ok) {
+        throw StateError(
+            "Connexion à « ${device.name ?? mac} » impossible. Vérifiez que l'imprimante est allumée et à proximité.");
       }
 
       // Envoi par chunks de 512 octets avec une courte pause entre chaque :
@@ -217,8 +309,8 @@ class BluetoothPrinterService {
             : data.length;
         await _printer.writeBytes(data.sublist(i, end)).timeout(
               kBluetoothWriteTimeout,
-              onTimeout: () => throw StateError(
-                  "L'imprimante ne répond pas, réessayez."),
+              onTimeout: () =>
+                  throw StateError("L'imprimante ne répond pas, réessayez."),
             );
         if (i + kBluetoothChunkSize < data.length) {
           await Future<void>.delayed(kBluetoothChunkDelay);

@@ -56,6 +56,30 @@ class ReceiptTableRow {
   });
 }
 
+/// Largeurs des colonnes du tableau des articles (nom / quantité / prix),
+/// calées sur le format du papier. [nameChars], [qtyChars] et [priceChars]
+/// sont les largeurs RÉELLEMENT imprimées (celles que wrapText() et la
+/// troncature doivent respecter) ; [nameGrid], [qtyGrid] et [priceGrid]
+/// sont les ratios PosColumn (grille de 12, somme = 12) pour l'encodage
+/// ESC/POS.
+class _TableColumnLayout {
+  const _TableColumnLayout({
+    required this.nameChars,
+    required this.qtyChars,
+    required this.priceChars,
+    required this.nameGrid,
+    required this.qtyGrid,
+    required this.priceGrid,
+  });
+
+  final int nameChars;
+  final int qtyChars;
+  final int priceChars;
+  final int nameGrid;
+  final int qtyGrid;
+  final int priceGrid;
+}
+
 /// Contenu complet du reçu : plan de lignes + logo + QR.
 class ReceiptContent {
   final List<Object> plan; // ReceiptLine | ReceiptTableRow
@@ -144,6 +168,72 @@ class ReceiptBuilder {
     final spaces = width - l.length - r.length;
     if (spaces < 1) return (l + r).substring(0, width);
     return '$l${' ' * spaces}$r';
+  }
+
+  /// Tronque [text] à [maxChars] caractères (jamais de débordement).
+  static String _fitText(String text, int maxChars) =>
+      text.length <= maxChars ? text : text.substring(0, maxChars);
+
+  /// Formate [value] (formatNumber) et garantit qu'il tient dans
+  /// [maxChars] caractères : on retire d'abord les espaces de milliers,
+  /// puis on tronque en dernier recours (montants extrêmes).
+  static String _fitPrice(double value, int maxChars) {
+    var text = formatNumber(value);
+    if (text.length <= maxChars) return text;
+    final compact = text.replaceAll(' ', '');
+    if (compact.length <= maxChars) return compact;
+    return compact.substring(0, maxChars);
+  }
+
+  // ------------------------------------------------------------------
+  // Tableau des articles : largeurs de colonnes selon le format papier
+  // ------------------------------------------------------------------
+
+  /// Largeur réelle (en caractères) d'une colonne de la grille de 12,
+  /// d'après la conversion interne de esc_pos_utils_plus (Generator.row :
+  /// décalage de 1 point entre colonnes + 5 points d'espacement). C'est
+  /// cette valeur — pas un simple ratio charsPerLine × width / 12 — que
+  /// doit respecter le contenu pour ne pas déborder du papier.
+  static int _columnChars(
+      int gridStart, int gridWidth, ReceiptPaperFormat format) {
+    final paperWidth = format == ReceiptPaperFormat.mm58 ? 384.0 : 576.0;
+    final charWidth = paperWidth / format.charsPerLine;
+    final fromPos = gridStart == 0 ? 0.0 : paperWidth * gridStart / 12 - 1;
+    final toPos = paperWidth * (gridStart + gridWidth) / 12 - 1 - 5;
+    return ((toPos - fromPos) / charWidth).floor();
+  }
+
+  /// Colonnes du tableau des articles pour [format].
+  ///
+  /// Cibles en caractères par format (58 mm → 32 car. : nom 16, qté 6,
+  /// prix 10 ; 80 mm → 48 car. : nom 24, qté 8, prix 16), converties en
+  /// ratios PosColumn (grille de 12, somme = 12). Les largeurs finales
+  /// en caractères sont recalculées via [_columnChars] pour refléter
+  /// exactement ce que l'imprimante alloue réellement (les ~3 caractères
+  /// manquants par ligne sont perdus dans l'espacement entre colonnes).
+  static _TableColumnLayout _tableLayout(ReceiptPaperFormat format) {
+    // Cibles en caractères (voir spécification) :
+    //  58 mm (32 car.) : nom 16, qté 6, prix 10
+    //  80 mm (48 car.) : nom 24, qté 8, prix 16
+    final (nameTarget, qtyTarget, priceTarget) = switch (format) {
+      ReceiptPaperFormat.mm58 => (16, 6, 10),
+      ReceiptPaperFormat.mm80 => (24, 8, 16),
+    };
+    final total = nameTarget + qtyTarget + priceTarget;
+
+    // Ratios PosColumn en grille de 12 (somme = 12).
+    final nameGrid = (nameTarget * 12 / total).round();
+    final qtyGrid = (qtyTarget * 12 / total).round();
+    final priceGrid = 12 - nameGrid - qtyGrid;
+
+    return _TableColumnLayout(
+      nameChars: _columnChars(0, nameGrid, format),
+      qtyChars: _columnChars(nameGrid, qtyGrid, format),
+      priceChars: _columnChars(nameGrid + qtyGrid, priceGrid, format),
+      nameGrid: nameGrid,
+      qtyGrid: qtyGrid,
+      priceGrid: priceGrid,
+    );
   }
 
   // ------------------------------------------------------------------
@@ -364,15 +454,19 @@ class ReceiptBuilder {
         name: 'ARTICLE', qty: 'QTÉ', price: 'PRIX', bold: true));
     plan.add(ReceiptLine('-' * width));
 
-    final nameWidth = settings.format == ReceiptPaperFormat.mm58 ? 15 : 22;
+    // Largeur réelle de la colonne « nom » (calculée comme l'imprimante
+    // l'alloue via PosColumn) : un nom wrappé à nameWidth tient donc
+    // exactement dans la colonne sur le papier physique.
+    final layout = _tableLayout(settings.format);
     for (final item in invoice.items) {
       final itemName = sanitize(item.name.trim());
-      final wrapped = wrapText(itemName.isEmpty ? 'Article' : itemName, nameWidth);
+      final wrapped =
+          wrapText(itemName.isEmpty ? 'Article' : itemName, layout.nameChars);
       for (var i = 0; i < wrapped.length; i++) {
         plan.add(ReceiptTableRow(
           name: wrapped[i],
-          qty: i == 0 ? 'x${item.quantity}' : '',
-          price: i == 0 ? formatNumber(item.subtotal) : '',
+          qty: i == 0 ? _fitText('x${item.quantity}', layout.qtyChars) : '',
+          price: i == 0 ? _fitPrice(item.subtotal, layout.priceChars) : '',
         ));
       }
     }
@@ -448,6 +542,7 @@ class ReceiptBuilder {
     );
 
     final bytes = <int>[];
+    final layout = _tableLayout(settings.format);
 
     // Logo en début de ticket.
     if (content.logoImage != null) {
@@ -474,7 +569,7 @@ class ReceiptBuilder {
           ),
         ));
       } else if (item is ReceiptTableRow) {
-        bytes.addAll(_encodeTableRow(generator, item));
+        bytes.addAll(_encodeTableRow(generator, item, layout));
       }
     }
 
@@ -506,12 +601,17 @@ class ReceiptBuilder {
     }
   }
 
-  /// Encodage d'une ligne du tableau en colonnes ESC/POS.
-  static List<int> _encodeTableRow(Generator generator, ReceiptTableRow row) {
+  /// Encodage d'une ligne du tableau en colonnes ESC/POS. Les ratios
+  /// PosColumn proviennent de [_tableLayout] : calés sur le format du
+  /// papier, ils sont cohérents avec les largeurs en caractères utilisées
+  /// par buildContent() (wrapText du nom + troncature qté / prix), donc
+  /// aucune colonne ne déborde du bord du papier.
+  static List<int> _encodeTableRow(
+      Generator generator, ReceiptTableRow row, _TableColumnLayout layout) {
     return generator.row([
       PosColumn(
         text: row.name,
-        width: 6,
+        width: layout.nameGrid,
         styles: PosStyles(
           bold: row.bold,
           align: PosAlign.left,
@@ -520,7 +620,7 @@ class ReceiptBuilder {
       ),
       PosColumn(
         text: row.qty,
-        width: 2,
+        width: layout.qtyGrid,
         styles: PosStyles(
           bold: row.bold,
           align: PosAlign.center,
@@ -529,7 +629,7 @@ class ReceiptBuilder {
       ),
       PosColumn(
         text: row.price,
-        width: 4,
+        width: layout.priceGrid,
         styles: PosStyles(
           bold: row.bold,
           align: PosAlign.right,

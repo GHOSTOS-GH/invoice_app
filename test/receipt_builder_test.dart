@@ -94,6 +94,92 @@ void main() {
     });
   });
 
+  group('tableau des articles : pas de débordement', () {
+    // Largeurs RÉELLES allouées par esc_pos_utils_plus pour les ratios
+    // PosColumn (6 / 2 / 4, somme = 12) : conversion grille de 12 →
+    // caractères avec l'offset de 1 point et les 5 points d'espacement
+    // inter-colonnes de Generator.row. Sur 58 mm (384 dots, 32 car.) :
+    // nom 15, qté 4, prix 10 — sur 80 mm (576 dots, 48 car.) : nom 23,
+    // qté 7, prix 15.
+    const expected = {
+      ReceiptPaperFormat.mm58: (name: 15, qty: 4, price: 10),
+      ReceiptPaperFormat.mm80: (name: 23, qty: 7, price: 15),
+    };
+
+    // Nom ≥ 25 caractères ET prix à 6 chiffres (125 000 FCFA) simultanément.
+    Invoice extremeInvoice() => Invoice(
+          id: '20260815123456',
+          clientName: 'Client Test',
+          createdAt: DateTime(2026, 8, 15, 14, 30),
+          items: const [
+            InvoiceItem(
+              name: 'Eau minérale bouteille 1.5 litre fraîche',
+              quantity: 1,
+              unitPrice: 125000,
+            ),
+          ],
+        );
+
+    for (final format in ReceiptPaperFormat.values) {
+      test('${format.label} : nom long + prix 6 chiffres tiennent en colonne',
+          () async {
+        final content = ReceiptBuilder.buildContent(
+            extremeInvoice(), ReceiptSettings(format: format));
+        final e = expected[format]!;
+
+        // Aucun champ d'une ligne du tableau ne dépasse sa colonne : c'est
+        // la garantie qu'aucune ligne wrappée/tronquée ne débordera du
+        // bord du papier à l'impression (même plan pour l'aperçu).
+        for (final row in content.plan.whereType<ReceiptTableRow>()) {
+          expect(row.name.length <= e.name, isTrue,
+              reason: 'nom « ${row.name} » (${row.name.length}) > ${e.name}');
+          expect(row.qty.length <= e.qty, isTrue,
+              reason: 'qté « ${row.qty} » (${row.qty.length}) > ${e.qty}');
+          expect(row.price.length <= e.price, isTrue,
+              reason: 'prix « ${row.price} » (${row.price.length}) > ${e.price}');
+        }
+
+        // Le prix à 6 chiffres tient intact dans la colonne prix.
+        expect(
+            content.plan
+                .whereType<ReceiptTableRow>()
+                .any((r) => r.price == '125 000'),
+            isTrue,
+            reason: 'le prix 125 000 doit être conservé tel quel');
+
+        // Le nom long est wrappé sur plusieurs lignes, toutes ≤ colonne.
+        expect(content.plan.whereType<ReceiptTableRow>().length, greaterThan(1),
+            reason: 'le nom long doit être wrappé');
+
+        // L'encodage ESC/POS des lignes du tableau passe sans erreur et
+        // produit bien un flux non vide (positionnement + texte).
+        final bytes = await ReceiptBuilder.buildEscPosBytes(content);
+        expect(bytes.length, greaterThan(100));
+      });
+    }
+
+    test('58 mm : prix extrême tronqué proprement, jamais de débordement',
+        () {
+      final invoice = Invoice(
+        id: '20260815123456',
+        clientName: 'Client Test',
+        createdAt: DateTime(2026, 8, 15, 14, 30),
+        items: const [
+          InvoiceItem(name: 'Article', quantity: 1, unitPrice: 125000000000),
+        ],
+      );
+      final content = ReceiptBuilder.buildContent(
+          invoice, const ReceiptSettings(format: ReceiptPaperFormat.mm58));
+      final price = content.plan
+          .whereType<ReceiptTableRow>()
+          .firstWhere((r) => r.price.isNotEmpty)
+          .price;
+      // « 125 000 000 000 » (15 car.) → espaces retirés puis tronqué à la
+      // largeur réelle de la colonne prix (10 car. en 58 mm).
+      expect(price.length, lessThanOrEqualTo(10));
+    });
+  });
+
   group('ReceiptBuilder.buildEscPosBytes', () {
     test('génère des octets non vides pour 58 mm et 80 mm', () async {
       for (final format in ReceiptPaperFormat.values) {

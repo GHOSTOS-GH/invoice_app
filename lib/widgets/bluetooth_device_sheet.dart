@@ -130,7 +130,11 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
   Future<void> _select(BluetoothDevice device) async {
     setState(() => _connecting = true);
     try {
-      final ok = await widget.service.connect(device);
+      // Connexion robuste : déconnexion préalable si un socket existe
+      // déjà (évite l'erreur native « already connected »), retry
+      // automatique après disconnect() sur socket résiduel, et court
+      // délai + re-vérification de isConnected avant de conclure.
+      final ok = await widget.service.connectSafely(device);
       if (ok) {
         await widget.service.saveDefaultPrinter(device);
         if (!mounted) return;
@@ -223,7 +227,8 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.bluetooth_searching, size: 56, color: Color(0xFFF59E0B)),
+            const Icon(Icons.bluetooth_searching,
+                size: 56, color: Color(0xFFF59E0B)),
             const SizedBox(height: 12),
             const Text(
               "Permissions Bluetooth refusées",
@@ -234,7 +239,8 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
             Text(
               "Autorisez l'accès aux « Appareils à proximité » dans les réglages de l'application pour lister vos imprimantes appairées.",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey[600], height: 1.4),
+              style:
+                  TextStyle(fontSize: 13, color: Colors.grey[600], height: 1.4),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -377,7 +383,8 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+                            color:
+                                const Color(0xFF2563EB).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(

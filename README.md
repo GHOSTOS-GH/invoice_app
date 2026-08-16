@@ -48,9 +48,10 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 - **Aperçu temps réel** : le ticket thermique est simulé à l'écran et se met à jour instantanément quand les paramètres changent (rendu identique à l'impression)
 - **Paramètres du reçu** : informations boutique (nom, adresse, téléphone, NINEA/RC), caissier, message pied de page, logo monochrome et **format du papier 58 mm / 80 mm**
 - Éléments affichables / masquables : logo, en-tête, adresse, téléphone, NINEA, pied de page et **QR code de la facture**
-- **Impression Bluetooth** (Android) : liste des appareils appairés, connexion, mémorisation de l'imprimante par défaut
+- **Impression Bluetooth** (Android) : liste des appareils appairés, **connexion robuste** (déconnexion préalable si un socket existe déjà, reprise automatique sur socket résiduel « already connected », re-vérification après court délai), mémorisation de l'imprimante par défaut
 - **Impression Wi-Fi** (Android + iPhone) : adresse IP de l'imprimante (port 9100) avec test de connexion
 - Envoi ESC/POS fiabilisé : **permissions runtime Android 12+** (BLUETOOTH_SCAN / BLUETOOTH_CONNECT), **envoi par chunks de 512 octets** (adapté aux petits buffers Bluetooth), **timeout de 15 s** si l'imprimante ne répond pas, et **libération de la connexion** après chaque impression
+- **Tableau des articles sans débordement** : largeurs des colonnes (nom / quantité / prix) recalculées en caractères selon le format du papier (58 mm / 80 mm) et alignées sur l'allocation réelle de l'imprimante ; nom wrappé et prix tronqué proprement pour ne jamais dépasser le bord du ticket
 
 ### 🔐 Sécurité & accès
 - Écran de connexion administrateur (connexion requise une fois par jour)
@@ -98,10 +99,10 @@ lib/
 │   ├── pdf_service.dart               # Génération PDF/PNG/JPG + filigrane
 │   ├── backup_service.dart            # Export CSV + sauvegarde/restauration JSON
 │   ├── auth_service.dart              # Authentification journalière
-│   ├── receipt_builder.dart           # Construction du reçu ESC/POS (même plan pour l'aperçu)
+│   ├── receipt_builder.dart           # Construction du reçu ESC/POS (même plan pour l'aperçu, colonnes du tableau calées sur le format 58/80 mm)
 │   ├── receipt_printer_common.dart    # Préparation commune des octets ESC/POS
 │   ├── receipt_settings_service.dart  # Persistance des paramètres du reçu + imprimante par défaut
-│   ├── bluetooth_printer_service.dart # Impression Bluetooth (Android) : permissions, chunks, timeout
+│   ├── bluetooth_printer_service.dart # Impression Bluetooth (Android) : permissions, connexion robuste (connectSafely), chunks, timeout
 │   └── network_printer_service.dart   # Impression Wi-Fi (socket TCP port 9100)
 ├── screens/
 │   ├── new_invoice_screen.dart        # Création de facture
@@ -216,7 +217,7 @@ flutter test
 
 - `test/widget_test.dart` : test de fumée (connexion admin + navigation entre les 4 onglets)
 - `test/backup_service_test.dart` : export CSV (échappement, une ligne par article) et aller-retour sauvegarde → restauration
-- `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm)
+- `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm), y compris les largeurs de colonnes du tableau (nom long + prix à 6 chiffres sans débordement, prix extrême tronqué)
 - `test/receipt_settings_service_test.dart` : persistance des paramètres du reçu et de l'imprimante par défaut
 
 ## 🖨️ Impression thermique (ESC/POS)
@@ -240,10 +241,16 @@ Le module d'impression génère **le même ticket thermique** pour le Bluetooth 
 
 ### Fiabilité des envois
 
+- **Connexion robuste (`connectSafely`)** : déconnexion préalable si un socket existe déjà (évite l'erreur native *« already connected »*), réessai automatique après `disconnect()` sur socket résiduel, et re-vérification de la connexion après un court délai (300 ms) avant d'afficher une erreur. Réutilisée par la feuille de sélection et par l'impression de facture.
 - Envoi **par chunks de 512 octets** avec une courte pause entre chaque bloc — évite la perte de données sur les modules Bluetooth à petit buffer (notamment pour le logo rastérisé).
 - **Timeout de 15 secondes** par écriture : si l'imprimante ne répond pas, message *« L'imprimante ne répond pas, réessayez. »*
 - **Déconnexion automatique** après chaque impression (succès comme échec) pour libérer la connexion.
 - **Erreurs différenciées** : permission refusée ≠ Bluetooth indisponible / éteint, avec message actionnable à chaque fois.
+
+### Rendu du tableau des articles
+
+- Les largeurs de colonnes (nom / quantité / prix) sont **recalculées en caractères selon le format du papier** (58 mm → 32 caractères, 80 mm → 48 caractères) puis converties en ratios ESC/POS cohérents avec l'allocation réelle de l'imprimante (espacement inter-colonnes pris en compte).
+- Le nom de l'article est wrappé exactement à la largeur de sa colonne et le prix est **tronqué proprement** (espaces de milliers retirés, puis troncature) s'il dépasse — aucun texte ne déborde du bord du ticket, quel que soit le format.
 
 ### Permissions Android (AndroidManifest.xml)
 
