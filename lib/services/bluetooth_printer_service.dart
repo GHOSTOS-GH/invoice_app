@@ -7,11 +7,46 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../models/invoice.dart';
 import '../models/receipt_settings.dart';
 import 'receipt_printer_common.dart';
 import 'receipt_settings_service.dart';
+
+/// Taille d'un chunk d'envoi ESC/POS (en octets). Les modules Bluetooth à
+/// petit buffer perdent des données si tout le flux est envoyé d'un bloc —
+/// particulièrement critique pour le logo rastérisé.
+const int kBluetoothChunkSize = 512;
+
+/// Délai entre deux chunks : laisse le temps à l'imprimante d'absorber
+/// les octets reçus avant d'en envoyer de nouveaux.
+const Duration kBluetoothChunkDelay = Duration(milliseconds: 25);
+
+/// Délai maximal d'attente d'une écriture avant de considérer que
+/// l'imprimante ne répond plus.
+const Duration kBluetoothWriteTimeout = Duration(seconds: 15);
+
+/// Permission Bluetooth refusée (Android 12+ : BLUETOOTH_SCAN /
+/// BLUETOOTH_CONNECT). Message actionnable invitant à activer la
+/// permission dans les réglages de l'application.
+class BluetoothPermissionDeniedException implements Exception {
+  final String message;
+  const BluetoothPermissionDeniedException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// Bluetooth indisponible : adaptateur absent, Bluetooth éteint,
+/// accès au matériel impossible, etc.
+class BluetoothUnavailableException implements Exception {
+  final String message;
+  const BluetoothUnavailableException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class BluetoothPrinterService {
   final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
@@ -19,6 +54,40 @@ class BluetoothPrinterService {
 
   /// L'impression Bluetooth n'est disponible que sur Android.
   bool get isSupported => Platform.isAndroid;
+
+  // ---------- Permissions runtime (Android 12+) ----------
+
+  /// Demande explicitement les permissions runtime Bluetooth
+  /// (BLUETOOTH_SCAN puis BLUETOOTH_CONNECT) avant tout accès au
+  /// matériel. Sur Android < 12, permission_handler ne les ajoute pas
+  /// (retour « accordé » automatique), donc l'appel est sans effet.
+  ///
+  /// Lance une [BluetoothPermissionDeniedException] avec un message
+  /// actionnable si l'une des permissions est refusée.
+  Future<bool> ensureBluetoothPermissions() async {
+    if (!Platform.isAndroid) return false;
+
+    final scan = await Permission.bluetoothScan.request();
+    if (!scan.isGranted) {
+      throw const BluetoothPermissionDeniedException(
+        "Permission Bluetooth refusée. Autorisez l'accès aux « Appareils à "
+        "proximité » pour cette application dans les réglages Android, puis "
+        "réessayez.",
+      );
+    }
+
+    final connect = await Permission.bluetoothConnect.request();
+    if (!connect.isGranted) {
+      throw const BluetoothPermissionDeniedException(
+        "Permission Bluetooth refusée. Autorisez l'accès aux « Appareils à "
+        "proximité » dans les réglages de l'application, puis réessayez.",
+      );
+    }
+    return true;
+  }
+
+  /// Ouvre les réglages de l'application (pour activer les permissions).
+  Future<void> openAppSettingsPage() => openAppSettings();
 
   // ---------- État Bluetooth ----------
 
@@ -69,16 +138,21 @@ class BluetoothPrinterService {
   /// Méthode réutilisable : génère le reçu ESC/POS de [invoice] et
   /// l'envoie à l'imprimante Bluetooth par défaut.
   ///
-  /// Lance une [StateError] avec un message explicite si :
+  /// Lance une exception avec un message explicite si :
+  ///  - la permission Bluetooth est refusée ([BluetoothPermissionDeniedException]),
+  ///  - le Bluetooth est indisponible ou éteint ([BluetoothUnavailableException]),
   ///  - aucune imprimante par défaut n'est enregistrée,
   ///  - l'imprimante n'est plus appairée,
-  ///  - la connexion échoue.
+  ///  - la connexion échoue ou l'imprimante ne répond pas dans les 15 s.
   Future<void> imprimerFacture(Invoice invoice,
       {ReceiptSettings? settings}) async {
     if (!isSupported) {
       throw StateError(
           "L'impression Bluetooth est disponible uniquement sur Android.");
     }
+
+    // Permissions runtime avant tout accès au matériel Bluetooth.
+    await ensureBluetoothPermissions();
 
     // Prépare le contenu du reçu (logo inclus si présent).
     final (_, bytes) = await prepareReceiptBytes(invoice, settings: settings);
@@ -89,6 +163,21 @@ class BluetoothPrinterService {
       throw StateError(
           "Aucune imprimante par défaut. Ouvrez l'aperçu du reçu puis choisissez une imprimante.");
     }
+
+    // Vérifie que le Bluetooth est bien activé avant d'aller plus loin.
+    try {
+      final on = await isOn;
+      if (!on) {
+        throw const BluetoothUnavailableException(
+            "Le Bluetooth est désactivé. Activez-le puis réessayez.");
+      }
+    } on BluetoothUnavailableException {
+      rethrow;
+    } catch (_) {
+      // Impossible de lire l'état : on laisse la connexion trancher.
+    }
+
+    // Retrouve l'appareil appairé correspondant à l'adresse MAC mémorisée.
     BluetoothDevice? device;
     try {
       final devices = await getBondedDevices();
@@ -99,25 +188,50 @@ class BluetoothPrinterService {
         }
       }
     } catch (_) {
-      // Bluetooth indisponible (ex : émulateur) — message générique.
-      throw StateError(
-          "Impossible d'accéder au Bluetooth. Vérifiez qu'il est activé.");
+      throw const BluetoothUnavailableException(
+          "Impossible d'accéder au Bluetooth. Vérifiez qu'il est activé et réessayez.");
     }
     if (device == null) {
       throw StateError(
           "Imprimante par défaut introuvable. Réappairez-la ou choisissez-en une autre.");
     }
 
-    // Connexion si nécessaire, puis envoi des données.
-    final connected = await isConnected;
-    if (!connected) {
-      final ok = await connect(device);
-      if (!ok) {
-        throw StateError(
-            "Connexion à « ${device.name ?? mac} » impossible. Vérifiez que l'imprimante est allumée et à proximité.");
+    try {
+      // Connexion si nécessaire, puis envoi des données.
+      final connected = await isConnected;
+      if (!connected) {
+        final ok = await connect(device);
+        if (!ok) {
+          throw StateError(
+              "Connexion à « ${device.name ?? mac} » impossible. Vérifiez que l'imprimante est allumée et à proximité.");
+        }
+      }
+
+      // Envoi par chunks de 512 octets avec une courte pause entre chaque :
+      // évite la perte de données sur les modules Bluetooth à petit buffer.
+      // Chaque écriture est bornée par un timeout de 15 secondes.
+      final data = Uint8List.fromList(bytes);
+      for (var i = 0; i < data.length; i += kBluetoothChunkSize) {
+        final end = (i + kBluetoothChunkSize < data.length)
+            ? i + kBluetoothChunkSize
+            : data.length;
+        await _printer.writeBytes(data.sublist(i, end)).timeout(
+              kBluetoothWriteTimeout,
+              onTimeout: () => throw StateError(
+                  "L'imprimante ne répond pas, réessayez."),
+            );
+        if (i + kBluetoothChunkSize < data.length) {
+          await Future<void>.delayed(kBluetoothChunkDelay);
+        }
+      }
+    } finally {
+      // Libère la connexion Bluetooth entre deux impressions, en cas de
+      // succès comme d'échec.
+      try {
+        await _printer.disconnect();
+      } catch (_) {
+        // Déconnexion « best effort » : l'imprimante peut déjà être déconnectée.
       }
     }
-
-    await _printer.writeBytes(Uint8List.fromList(bytes));
   }
 }

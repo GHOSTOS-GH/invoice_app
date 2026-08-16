@@ -79,7 +79,16 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
   }
 
   Future<void> _loadPrinters() async {
-    final device = await _bluetoothService.getDefaultDevice();
+    // Le Bluetooth n'existe que sur Android : on ne touche pas au plugin
+    // sur iOS (il lèverait une exception sans gestionnaire).
+    BluetoothDevice? device;
+    if (_isAndroid) {
+      try {
+        device = await _bluetoothService.getDefaultDevice();
+      } catch (_) {
+        device = null;
+      }
+    }
     final ip = await _networkService.getDefaultPrinterIp();
     if (!mounted) return;
     setState(() {

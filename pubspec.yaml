@@ -25,6 +25,7 @@ dependencies:
   esc_pos_utils_plus: ^2.0.4
   blue_thermal_printer: ^1.2.3
   qr_flutter: ^4.1.0
+  permission_handler: ^13.0.1
 
 dev_dependencies:
   flutter_test:

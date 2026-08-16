@@ -44,6 +44,14 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 - Export en image PNG ou JPG (idéal pour WhatsApp)
 - Partage natif direct depuis l'application
 
+### 🖨️ Reçu thermique & impression (Bluetooth / Wi-Fi)
+- **Aperçu temps réel** : le ticket thermique est simulé à l'écran et se met à jour instantanément quand les paramètres changent (rendu identique à l'impression)
+- **Paramètres du reçu** : informations boutique (nom, adresse, téléphone, NINEA/RC), caissier, message pied de page, logo monochrome et **format du papier 58 mm / 80 mm**
+- Éléments affichables / masquables : logo, en-tête, adresse, téléphone, NINEA, pied de page et **QR code de la facture**
+- **Impression Bluetooth** (Android) : liste des appareils appairés, connexion, mémorisation de l'imprimante par défaut
+- **Impression Wi-Fi** (Android + iPhone) : adresse IP de l'imprimante (port 9100) avec test de connexion
+- Envoi ESC/POS fiabilisé : **permissions runtime Android 12+** (BLUETOOTH_SCAN / BLUETOOTH_CONNECT), **envoi par chunks de 512 octets** (adapté aux petits buffers Bluetooth), **timeout de 15 s** si l'imprimante ne répond pas, et **libération de la connexion** après chaque impression
+
 ### 🔐 Sécurité & accès
 - Écran de connexion administrateur (connexion requise une fois par jour)
 - Identifiants par défaut : `Admin` / `0000` (modifiables dans `lib/utils/constants.dart`)
@@ -59,6 +67,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 - Historique des articles
 - **Bibliothèque produits** : ajout/modification avec photo compressée automatiquement et catégories
 - Onglet **Sauvegarde** : export CSV, sauvegarde JSON et restauration (voir section dédiée)
+- Onglet **Reçu** : personnalisation du ticket thermique (boutique, logo, format 58/80 mm, éléments affichés) et configuration des imprimantes Bluetooth / Wi-Fi
 
 ## 🎨 Design & Expérience utilisateur
 
@@ -70,7 +79,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
   - Fonds clairs : `#F8FAFC`
 - Typographie renforcée, espacements généreux, transitions de pages fluides
 - **4 onglets** : 🧾 Facture, 📜 Historique, 📊 Stats, ⚙️ Paramètres
-- Onglet **Paramètres** organisé en 4 sous-onglets : Clients, Hist. articles, Produits, Sauvegarde
+- Onglet **Paramètres** organisé en 5 sous-onglets : Clients, Hist. articles, Produits, Sauvegarde, Reçu
 - Écrans de chargement en *skeleton* pour un rendu soigné
 
 ## 🏗️ Structure du projet
@@ -80,20 +89,27 @@ lib/
 ├── main.dart                          # Point d'entrée, thème et navigation
 ├── models/
 │   ├── invoice.dart                   # Invoice, InvoiceItem, InvoiceStatus
-│   └── product.dart                   # Produit de la bibliothèque
+│   ├── product.dart                   # Produit de la bibliothèque
+│   └── receipt_settings.dart          # Paramètres du reçu thermique (ESC/POS)
 ├── services/
 │   ├── storage_service.dart           # Persistance + prix historiques par client
 │   ├── history_service.dart           # Autocomplétion clients/articles
 │   ├── product_service.dart           # Bibliothèque produits
 │   ├── pdf_service.dart               # Génération PDF/PNG/JPG + filigrane
 │   ├── backup_service.dart            # Export CSV + sauvegarde/restauration JSON
-│   └── auth_service.dart              # Authentification journalière
+│   ├── auth_service.dart              # Authentification journalière
+│   ├── receipt_builder.dart           # Construction du reçu ESC/POS (même plan pour l'aperçu)
+│   ├── receipt_printer_common.dart    # Préparation commune des octets ESC/POS
+│   ├── receipt_settings_service.dart  # Persistance des paramètres du reçu + imprimante par défaut
+│   ├── bluetooth_printer_service.dart # Impression Bluetooth (Android) : permissions, chunks, timeout
+│   └── network_printer_service.dart   # Impression Wi-Fi (socket TCP port 9100)
 ├── screens/
 │   ├── new_invoice_screen.dart        # Création de facture
 │   ├── history_screen.dart            # Historique + filtres + période
 │   ├── invoice_detail_screen.dart     # Détails et édition
+│   ├── receipt_preview_screen.dart    # Aperçu du reçu + envoi Bluetooth / Wi-Fi
 │   ├── stats_screen.dart              # Statistiques
-│   ├── settings_screen.dart           # Paramètres (clients, articles, produits, sauvegarde)
+│   ├── settings_screen.dart           # Paramètres (clients, articles, produits, sauvegarde, reçu)
 │   └── login_screen.dart              # Connexion admin
 ├── utils/
 │   ├── constants.dart                 # Clés, identifiants, tailles
@@ -102,6 +118,10 @@ lib/
     ├── last_price_hint.dart           # Encart « dernier prix par client »
     ├── product_grid_sheet.dart        # Grille de sélection de produits
     ├── product_form_dialog.dart       # Formulaire produit (photo)
+    ├── receipt_preview.dart           # Rendu du ticket thermique à l'écran
+    ├── receipt_settings_tab.dart      # Onglet « Reçu » des paramètres
+    ├── bluetooth_device_sheet.dart    # Sélection / connexion imprimante Bluetooth
+    ├── network_printer_sheet.dart     # Configuration imprimante Wi-Fi (IP + test)
     ├── skeleton_loader.dart           # Squelettes de chargement
     └── item_form_dialog.dart          # (conservé pour compatibilité)
 ```
@@ -118,6 +138,11 @@ lib/
 - **file_picker** : Sélection d'un fichier de sauvegarde pour la restauration
 - **image_picker** + **image** : Photos produits compressées
 - **fl_chart** : Graphiques statistiques
+- **blue_thermal_printer** : Impression Bluetooth ESC/POS (Android)
+- **esc_pos_utils_plus** : Génération des commandes ESC/POS du reçu
+- **permission_handler** : Permissions runtime (Bluetooth Android 12+, etc.)
+- **qr_flutter** : QR code de la facture sur le reçu thermique
+- **flutter_launcher_icons** : Génération des icônes de lancement
 
 ## 🚀 Installation et lancement
 
@@ -191,6 +216,41 @@ flutter test
 
 - `test/widget_test.dart` : test de fumée (connexion admin + navigation entre les 4 onglets)
 - `test/backup_service_test.dart` : export CSV (échappement, une ligne par article) et aller-retour sauvegarde → restauration
+- `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm)
+- `test/receipt_settings_service_test.dart` : persistance des paramètres du reçu et de l'imprimante par défaut
+
+## 🖨️ Impression thermique (ESC/POS)
+
+Le module d'impression génère **le même ticket thermique** pour le Bluetooth (Android) et le Wi-Fi (Android + iPhone).
+
+### Bluetooth (Android uniquement)
+
+1. Appairez l'imprimante thermique dans les réglages Bluetooth d'Android.
+2. Ouvrez **« Aperçu du reçu »** depuis une facture (ou Paramètres → Reçu), puis **« Configurer les imprimantes » → « Imprimante Bluetooth »**.
+3. Touchez votre imprimante : elle est connectée et mémorisée comme imprimante par défaut.
+4. Appuyez sur **« Bluetooth »** en bas de l'aperçu pour imprimer.
+
+**Permissions Android 12+** : à la première ouverture, l'application demande `BLUETOOTH_SCAN` et `BLUETOOTH_CONNECT` (écran « Appareils à proximité »). Si elles sont refusées, un message invite à les activer depuis les réglages de l'application.
+
+### Wi-Fi (Android + iPhone)
+
+1. Connectez le téléphone / la tablette et l'imprimante au **même réseau Wi-Fi**.
+2. Trouvez l'adresse IP de l'imprimante (réglages de l'imprimante ou page de test).
+3. Dans **« Configurer les imprimantes » → « Imprimante Wi-Fi »**, saisissez l'IP et validez avec **« Tester la connexion »** (port 9100).
+
+### Fiabilité des envois
+
+- Envoi **par chunks de 512 octets** avec une courte pause entre chaque bloc — évite la perte de données sur les modules Bluetooth à petit buffer (notamment pour le logo rastérisé).
+- **Timeout de 15 secondes** par écriture : si l'imprimante ne répond pas, message *« L'imprimante ne répond pas, réessayez. »*
+- **Déconnexion automatique** après chaque impression (succès comme échec) pour libérer la connexion.
+- **Erreurs différenciées** : permission refusée ≠ Bluetooth indisponible / éteint, avec message actionnable à chaque fois.
+
+### Permissions Android (AndroidManifest.xml)
+
+- `INTERNET` : sockets TCP vers l'imprimante Wi-Fi (indispensable en build release)
+- `BLUETOOTH` / `BLUETOOTH_ADMIN` (≤ Android 11) et `BLUETOOTH_SCAN` / `BLUETOOTH_CONNECT` (Android 12+)
+- `ACCESS_FINE_LOCATION` : découverte des appareils Bluetooth (Android ≤ 11)
+- `CAMERA`, `READ/WRITE_EXTERNAL_STORAGE` : photos produits et exports
 
 ## 🎯 Validation des données
 
@@ -219,7 +279,6 @@ flutter test
 - Mode sombre 🌙
 - Numérotation automatique des factures (ex : FAC-2026-001)
 - Fiche client détaillée (adresse, téléphone, historique)
-- Impression directe
 - Multi-devises
 
 ## 📄 Licence

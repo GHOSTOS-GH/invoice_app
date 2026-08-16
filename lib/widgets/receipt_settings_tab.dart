@@ -65,7 +65,11 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
 
   Future<void> _init() async {
     final settings = await _service.loadSettings();
-    _printerDevice = await _printerService.getDefaultDevice();
+    // Le Bluetooth n'existe que sur Android : on n'interroge pas le plugin
+    // sur iOS (il lèverait une exception sans gestionnaire).
+    if (Platform.isAndroid) {
+      _printerDevice = await _printerService.getDefaultDevice();
+    }
     _wifiIp = await _networkService.getDefaultPrinterIp();
     if (!mounted) return;
     setState(() {
@@ -388,67 +392,70 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
           ],
         ),
         const SizedBox(height: 18),
-        _sectionHeader(
-          icon: Icons.bluetooth,
-          title: 'Imprimante Bluetooth',
-          subtitle: 'Appairée dans les réglages Android',
-        ),
-        const SizedBox(height: 10),
-        _card(
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: (_printerDevice != null
-                            ? const Color(0xFF16A34A)
-                            : const Color(0xFF64748B))
-                        .withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+        if (Platform.isAndroid) ...[
+          _sectionHeader(
+            icon: Icons.bluetooth,
+            title: 'Imprimante Bluetooth',
+            subtitle: 'Appairée dans les réglages Android',
+          ),
+          const SizedBox(height: 10),
+          _card(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: (_printerDevice != null
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFF64748B))
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      _printerDevice != null
+                          ? Icons.bluetooth_connected
+                          : Icons.bluetooth,
+                      color: _printerDevice != null
+                          ? const Color(0xFF16A34A)
+                          : const Color(0xFF64748B),
+                    ),
                   ),
-                  child: Icon(
-                    _printerDevice != null
-                        ? Icons.bluetooth_connected
-                        : Icons.bluetooth,
-                    color: _printerDevice != null
-                        ? const Color(0xFF16A34A)
-                        : const Color(0xFF64748B),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _printerDevice?.name ?? 'Aucune imprimante',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _printerDevice?.name ?? 'Aucune imprimante',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      Text(
-                        _printerDevice?.address ??
-                            'Choisissez votre imprimante thermique',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[500],
+                        Text(
+                          _printerDevice?.address ??
+                              'Choisissez votre imprimante thermique',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[500],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                TextButton(
-                  onPressed: _openPrinterSheet,
-                  child: Text(_printerDevice != null ? 'Changer' : 'Choisir'),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: _openPrinterSheet,
+                    child:
+                        Text(_printerDevice != null ? 'Changer' : 'Choisir'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+        ],
         _card(
           children: [
             Row(

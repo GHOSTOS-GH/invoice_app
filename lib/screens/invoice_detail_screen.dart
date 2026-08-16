@@ -424,7 +424,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
               const SizedBox(height: 16),
               const Text('Partager la facture', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              _shareOption(ctx, icon: Icons.print_outlined, color: const Color(0xFF2563EB), label: 'Impression Bluetooth', subtitle: 'Aperçu du reçu thermique (58 / 80 mm)', onTap: () {
+              _shareOption(ctx, icon: Icons.print_outlined, color: const Color(0xFF2563EB), label: 'Reçu thermique (58 / 80 mm)', subtitle: 'Bluetooth (Android) · Wi-Fi (Android + iPhone)', onTap: () {
                 Navigator.pop(ctx);
                 Navigator.push(
                   context,

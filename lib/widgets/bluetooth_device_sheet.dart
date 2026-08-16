@@ -39,6 +39,7 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
   bool _btAvailable = true;
   bool _loading = true;
   bool _connecting = false;
+  bool _permissionDenied = false;
   List<BluetoothDevice> _devices = [];
   String? _defaultMac;
   bool _connected = false;
@@ -50,8 +51,22 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _permissionDenied = false;
+    });
+
+    // Sur iOS, le Bluetooth n'est pas proposé : rien à charger.
+    if (!widget.service.isSupported) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      return;
+    }
+
     try {
+      // Android 12+ : demande explicite des permissions runtime Bluetooth
+      // avant de lire l'état ou de lister les appareils appairés.
+      await widget.service.ensureBluetoothPermissions();
       final available = await widget.service.isAvailable;
       final on = await widget.service.isOn;
       final defaultMac = await widget.service.getDefaultPrinterMac();
@@ -66,6 +81,25 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
         _connected = connected;
         _loading = false;
       });
+    } on BluetoothPermissionDeniedException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _permissionDenied = true;
+        _btAvailable = false;
+        _loading = false;
+      });
+      _showSnack(e.message, action: 'Réglages', onAction: () {
+        widget.service.openAppSettingsPage();
+        _load();
+      });
+    } on BluetoothUnavailableException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _btAvailable = false;
+        _btOn = false;
+        _loading = false;
+      });
+      _showSnack(e.message);
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -73,6 +107,24 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
         _loading = false;
       });
     }
+  }
+
+  void _showSnack(String message, {String? action, VoidCallback? onAction}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        action: action != null
+            ? SnackBarAction(
+                label: action,
+                textColor: Colors.white,
+                onPressed: onAction ?? () {},
+              )
+            : null,
+      ),
+    );
   }
 
   Future<void> _select(BluetoothDevice device) async {
@@ -93,15 +145,15 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
           ),
         );
       }
+    } on BluetoothPermissionDeniedException catch (e) {
+      _showSnack(e.message, action: 'Réglages', onAction: () {
+        widget.service.openAppSettingsPage();
+        _load();
+      });
+    } on BluetoothUnavailableException catch (e) {
+      _showSnack(e.message);
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur de connexion : $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSnack('Erreur de connexion : $e');
     } finally {
       if (mounted) setState(() => _connecting = false);
     }
@@ -158,6 +210,40 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
               "L'impression Bluetooth n'est disponible que sur Android.",
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Permission Bluetooth refusée : état dédié avec accès aux réglages.
+    if (_permissionDenied) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.bluetooth_searching, size: 56, color: Color(0xFFF59E0B)),
+            const SizedBox(height: 12),
+            const Text(
+              "Permissions Bluetooth refusées",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "Autorisez l'accès aux « Appareils à proximité » dans les réglages de l'application pour lister vos imprimantes appairées.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey[600], height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () async {
+                await widget.service.openAppSettingsPage();
+                _load();
+              },
+              icon: const Icon(Icons.settings),
+              label: const Text('Ouvrir les réglages'),
             ),
           ],
         ),
