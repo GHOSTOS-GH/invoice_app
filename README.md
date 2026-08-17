@@ -52,7 +52,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 - **Impression Bluetooth** (Android) : liste des appareils appairés, **connexion robuste** (déconnexion préalable si un socket existe déjà, reprise automatique sur socket résiduel « already connected », re-vérification après court délai), mémorisation de l'imprimante par défaut
 - **Impression Wi-Fi** (Android + iPhone) : adresse IP de l'imprimante (port 9100) avec test de connexion
 - Envoi ESC/POS fiabilisé : **permissions runtime Android 12+** (BLUETOOTH_SCAN / BLUETOOTH_CONNECT), **envoi par chunks de 512 octets** (adapté aux petits buffers Bluetooth), **timeout de 15 s** si l'imprimante ne répond pas, et **libération de la connexion** après chaque impression
-- **Tableau des articles sans débordement** : largeurs des colonnes (nom / quantité / prix) recalculées en caractères selon le format du papier (58 mm / 80 mm) et alignées sur l'allocation réelle de l'imprimante ; nom wrappé et prix tronqué proprement pour ne jamais dépasser le bord du ticket
+- **Tableau des articles sans débordement** : règles métier **fixes** et identiques sur les deux formats de papier — nom d'article **10 caractères max**, quantité **4 caractères max** (« x » inclus, couvre « x999 »), prix de ligne **8 caractères max** (espaces inclus) ; le nom est wrappé proprement et le prix compacté/tronqué via `_fitPrice`, et les mêmes 8 caractères s'appliquent aux montants des totaux (SOUS-TOTAL, TOTAL À PAYER). L'espace restant du papier (surtout en 80 mm) devient de la marge : les colonnes ne sont jamais agrandies
 
 ### 🔐 Sécurité & accès
 - Écran de connexion administrateur (connexion requise une fois par jour)
@@ -100,7 +100,7 @@ lib/
 │   ├── pdf_service.dart               # Génération PDF/PNG/JPG + filigrane
 │   ├── backup_service.dart            # Export CSV + sauvegarde/restauration JSON
 │   ├── auth_service.dart              # Authentification journalière
-│   ├── receipt_builder.dart           # Construction du reçu ESC/POS (même plan pour l'aperçu, colonnes du tableau calées sur le format 58/80 mm)
+│   ├── receipt_builder.dart           # Construction du reçu ESC/POS (même plan pour l'aperçu, tableau à règles métier fixes : nom 10 / qté 4 / prix 8, identiques en 58 et 80 mm)
 │   ├── receipt_printer_common.dart    # Préparation commune des octets ESC/POS
 │   ├── receipt_settings_service.dart  # Persistance des paramètres du reçu + imprimante par défaut
 │   ├── bluetooth_printer_service.dart # Impression Bluetooth (Android) : permissions, connexion robuste (connectSafely), chunks, timeout
@@ -218,7 +218,7 @@ flutter test
 
 - `test/widget_test.dart` : test de fumée (connexion admin + navigation entre les 4 onglets)
 - `test/backup_service_test.dart` : export CSV (échappement, une ligne par article) et aller-retour sauvegarde → restauration
-- `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm), y compris les largeurs de colonnes du tableau (nom long + prix à 6 chiffres sans débordement, prix extrême tronqué)
+- `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm), y compris les règles métier fixes du tableau (nom 10 / qté 4 / prix 8) : nom de 10 caractères pile sur une seule ligne, nom long wrappé, quantité à 3 chiffres (x999), prix compacté à 8 caractères, SOUS-TOTAL / TOTAL À PAYER à la limite de 8 caractères, prix extrême tronqué
 - `test/receipt_settings_service_test.dart` : persistance des paramètres du reçu et de l'imprimante par défaut
 
 ## 🖨️ Impression thermique (ESC/POS)
@@ -250,8 +250,9 @@ Le module d'impression génère **le même ticket thermique** pour le Bluetooth 
 
 ### Rendu du tableau des articles
 
-- Les largeurs de colonnes (nom / quantité / prix) sont **recalculées en caractères selon le format du papier** (58 mm → 32 caractères, 80 mm → 48 caractères) puis converties en ratios ESC/POS cohérents avec l'allocation réelle de l'imprimante (espacement inter-colonnes pris en compte).
-- Le nom de l'article est wrappé exactement à la largeur de sa colonne et le prix est **tronqué proprement** (espaces de milliers retirés, puis troncature) s'il dépasse — aucun texte ne déborde du bord du ticket, quel que soit le format.
+- **Règles métier fixes, identiques sur les deux formats** (58 mm / 80 mm) : nom d'article **10 caractères max**, quantité **4 caractères max** (« x » inclus, couvre « x999 »), prix total de ligne **8 caractères max** (espaces inclus). Les cibles sont converties en ratios ESC/POS (grille de 12, somme = 12) cohérents avec l'allocation réelle de l'imprimante, mais les colonnes ne sont **jamais agrandies** : l'espace restant du papier (surtout en 80 mm) devient simplement de la marge / de l'espacement supplémentaire.
+- Le nom de l'article est wrappé exactement à 10 caractères et le prix est **compacté puis tronqué proprement** (`_fitPrice` : espaces de milliers retirés, puis troncature en dernier recours) s'il dépasse — aucun texte ne déborde du bord du ticket, quel que soit le format.
+- **Les montants des totaux** (SOUS-TOTAL, REMISE, TVA, TOTAL À PAYER) respectent la même limite de **8 caractères max** (espaces inclus) via `_fitPrice`, comme les prix de ligne des articles.
 
 ### Permissions Android (AndroidManifest.xml)
 

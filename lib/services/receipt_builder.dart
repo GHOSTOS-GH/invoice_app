@@ -7,6 +7,7 @@
 // Ainsi ce qui est affiché dans l'aperçu est identique à l'impression.
 
 import 'dart:io';
+import 'dart:math' show min;
 import 'dart:typed_data';
 
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
@@ -186,8 +187,21 @@ class ReceiptBuilder {
   }
 
   // ------------------------------------------------------------------
-  // Tableau des articles : largeurs de colonnes selon le format papier
+  // Tableau des articles : règles métier fixes, identiques sur les deux
+  // formats papier (58 mm / 80 mm)
   // ------------------------------------------------------------------
+
+  // Budgets de caractères FIXES, quel que soit le format du papier :
+  //  - nom d'article : 10 caractères max
+  //  - quantité : 4 caractères max, « x » inclus (couvre « x999 »)
+  //  - prix (total par ligne d'article) : 8 caractères max, espaces inclus
+  // L'espace restant du papier — surtout en 80 mm — n'agrandit jamais les
+  // colonnes : il devient de la marge / de l'espacement supplémentaire.
+  // Le même budget (priceTarget) s'applique aux montants des totaux en
+  // bas de ticket (SOUS-TOTAL, TOTAL À PAYER…).
+  static const int nameTarget = 10;
+  static const int qtyTarget = 4;
+  static const int priceTarget = 8;
 
   /// Largeur réelle (en caractères) d'une colonne de la grille de 12,
   /// d'après la conversion interne de esc_pos_utils_plus (Generator.row :
@@ -205,31 +219,29 @@ class ReceiptBuilder {
 
   /// Colonnes du tableau des articles pour [format].
   ///
-  /// Cibles en caractères par format (58 mm → 32 car. : nom 16, qté 6,
-  /// prix 10 ; 80 mm → 48 car. : nom 24, qté 8, prix 16), converties en
-  /// ratios PosColumn (grille de 12, somme = 12). Les largeurs finales
-  /// en caractères sont recalculées via [_columnChars] pour refléter
-  /// exactement ce que l'imprimante alloue réellement (les ~3 caractères
-  /// manquants par ligne sont perdus dans l'espacement entre colonnes).
+  /// Les budgets de caractères sont FIXES (10 / 4 / 8, voir [nameTarget],
+  /// [qtyTarget], [priceTarget]) et identiques sur les deux formats : ils
+  /// sont convertis en ratios PosColumn (grille de 12, somme = 12), donc
+  /// la grille est la même en 58 mm et en 80 mm. La largeur en caractères
+  /// réellement utilisée est la plus petite entre la cible métier et ce
+  /// que l'imprimante alloue physiquement via [_columnChars] : les
+  /// colonnes ne dépassent jamais la cible, et l'espace restant du papier
+  /// (surtout en 80 mm) devient simplement de la marge / de l'espacement.
   static _TableColumnLayout _tableLayout(ReceiptPaperFormat format) {
-    // Cibles en caractères (voir spécification) :
-    //  58 mm (32 car.) : nom 16, qté 6, prix 10
-    //  80 mm (48 car.) : nom 24, qté 8, prix 16
-    final (nameTarget, qtyTarget, priceTarget) = switch (format) {
-      ReceiptPaperFormat.mm58 => (16, 6, 10),
-      ReceiptPaperFormat.mm80 => (24, 8, 16),
-    };
-    final total = nameTarget + qtyTarget + priceTarget;
+    const total = nameTarget + qtyTarget + priceTarget;
 
-    // Ratios PosColumn en grille de 12 (somme = 12).
+    // Ratios PosColumn en grille de 12 (somme = 12), identiques pour les
+    // deux formats puisque les cibles sont fixes (10/4/8 → 5/2/5).
     final nameGrid = (nameTarget * 12 / total).round();
     final qtyGrid = (qtyTarget * 12 / total).round();
     final priceGrid = 12 - nameGrid - qtyGrid;
 
     return _TableColumnLayout(
-      nameChars: _columnChars(0, nameGrid, format),
-      qtyChars: _columnChars(nameGrid, qtyGrid, format),
-      priceChars: _columnChars(nameGrid + qtyGrid, priceGrid, format),
+      // Largeur allouée par l'imprimante, bornée par la règle métier.
+      nameChars: min(nameTarget, _columnChars(0, nameGrid, format)),
+      qtyChars: min(qtyTarget, _columnChars(nameGrid, qtyGrid, format)),
+      priceChars:
+          min(priceTarget, _columnChars(nameGrid + qtyGrid, priceGrid, format)),
       nameGrid: nameGrid,
       qtyGrid: qtyGrid,
       priceGrid: priceGrid,
@@ -480,20 +492,24 @@ class ReceiptBuilder {
     final taxAmount = invoice.taxAmount;
     final payable = invoice.payableTotal;
 
-    plan.add(ReceiptLine(padLR('SOUS-TOTAL', formatNumber(subtotal), width)));
+    // Les montants respectent la même règle métier que les prix de ligne :
+    // 8 caractères max, espaces inclus, via _fitPrice (espaces de milliers
+    // retirés puis troncature en dernier recours).
+    plan.add(
+        ReceiptLine(padLR('SOUS-TOTAL', _fitPrice(subtotal, priceTarget), width)));
     if (discount > 0) {
-      plan.add(
-          ReceiptLine(padLR('REMISE', '-${formatNumber(discount)}', width)));
+      plan.add(ReceiptLine(
+          padLR('REMISE', '-${_fitPrice(discount, priceTarget)}', width)));
     }
     if (taxRate > 0) {
-      plan.add(ReceiptLine(
-          padLR('TVA ${formatNumber(taxRate)}%', formatNumber(taxAmount), width)));
+      plan.add(ReceiptLine(padLR('TVA ${formatNumber(taxRate)}%',
+          _fitPrice(taxAmount, priceTarget), width)));
     }
     plan.add(ReceiptLine('=' * width));
     plan.add(const ReceiptLine('TOTAL À PAYER',
         align: ReceiptAlign.center, bold: true, reverse: true));
 
-    final totalText = '${formatNumber(payable)} FCFA';
+    final totalText = '${_fitPrice(payable, priceTarget)} FCFA';
     plan.add(ReceiptLine(
       totalText,
       align: ReceiptAlign.center,

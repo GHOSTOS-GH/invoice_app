@@ -49,10 +49,12 @@ void main() {
       expect(texts, contains('Client : Client Test'));
       expect(texts, contains('Caissier : Admin'));
 
-      // Articles
-      expect(rows.any((r) => r.name == 'Coca-Cola 1.5L'), isTrue);
-      expect(rows.any((r) => r.qty == 'x2'), isTrue);
-      expect(rows.any((r) => r.price == '2 000'), isTrue);
+      // Articles : « Coca-Cola 1.5L » (13 car.) est wrappé à 10 → la
+      // quantité et le prix n'apparaissent que sur la première ligne.
+      expect(rows.any((r) => r.name == 'Coca-Cola'), isTrue);
+      expect(rows.any((r) => r.name == '1.5L'), isTrue);
+      expect(rows.any((r) => r.qty == 'x2' && r.price == '2 000'), isTrue);
+      expect(rows.any((r) => r.name == 'Riz 5 kg'), isTrue);
 
       // Totaux : sous-total 4500, remise 500, TVA 720, total 4720
       expect(texts.any((t) => t.contains('SOUS-TOTAL') && t.contains('4 500')),
@@ -95,15 +97,14 @@ void main() {
   });
 
   group('tableau des articles : pas de débordement', () {
-    // Largeurs RÉELLES allouées par esc_pos_utils_plus pour les ratios
-    // PosColumn (6 / 2 / 4, somme = 12) : conversion grille de 12 →
-    // caractères avec l'offset de 1 point et les 5 points d'espacement
-    // inter-colonnes de Generator.row. Sur 58 mm (384 dots, 32 car.) :
-    // nom 15, qté 4, prix 10 — sur 80 mm (576 dots, 48 car.) : nom 23,
-    // qté 7, prix 15.
+    // Règles métier FIXES (nom 10 / qté 4 / prix 8), identiques sur les
+    // deux formats : la largeur utilisée est bornée par la cible. Sur le
+    // papier, l'imprimante alloue plus (grille PosColumn 5/2/5) mais les
+    // colonnes ne sont jamais agrandies — l'espace restant (surtout en
+    // 80 mm) devient de la marge / de l'espacement.
     const expected = {
-      ReceiptPaperFormat.mm58: (name: 15, qty: 4, price: 10),
-      ReceiptPaperFormat.mm80: (name: 23, qty: 7, price: 15),
+      ReceiptPaperFormat.mm58: (name: 10, qty: 4, price: 8),
+      ReceiptPaperFormat.mm80: (name: 10, qty: 4, price: 8),
     };
 
     // Nom ≥ 25 caractères ET prix à 6 chiffres (125 000 FCFA) simultanément.
@@ -170,14 +171,153 @@ void main() {
       );
       final content = ReceiptBuilder.buildContent(
           invoice, const ReceiptSettings(format: ReceiptPaperFormat.mm58));
+      // On exclut la ligne d'en-tête (PRIX) : on vise bien le prix article.
       final price = content.plan
           .whereType<ReceiptTableRow>()
+          .where((r) => !r.bold)
           .firstWhere((r) => r.price.isNotEmpty)
           .price;
       // « 125 000 000 000 » (15 car.) → espaces retirés puis tronqué à la
-      // largeur réelle de la colonne prix (10 car. en 58 mm).
-      expect(price.length, lessThanOrEqualTo(10));
+      // règle métier de 8 caractères (espaces inclus).
+      expect(price.length, 8);
+      expect(price, '12500000');
     });
+  });
+
+  group('règles métier fixes du tableau : 10 / 4 / 8 sur les deux formats',
+      () {
+    // Lignes d'articles uniquement (l'en-tête ARTICLE/QTÉ/PRIX est gras).
+    List<ReceiptTableRow> itemRows(ReceiptContent content) => content.plan
+        .whereType<ReceiptTableRow>()
+        .where((r) => !r.bold)
+        .toList();
+
+    for (final format in ReceiptPaperFormat.values) {
+      test('${format.label} : nom de 10 caractères pile → une seule ligne',
+          () {
+        final content = ReceiptBuilder.buildContent(
+          Invoice(
+            id: '20260815123456',
+            clientName: 'Client Test',
+            createdAt: DateTime(2026, 8, 15, 14, 30),
+            // 10 caractères pile : doit tenir sur une seule ligne.
+            items: const [
+              InvoiceItem(name: 'ABCDEFGHIJ', quantity: 1, unitPrice: 100),
+            ],
+          ),
+          ReceiptSettings(format: format),
+        );
+        final rows = itemRows(content);
+        expect(rows.length, 1,
+            reason: '10 caractères tiennent sur une seule ligne (pas de wrap prématuré)');
+        expect(rows.first.name, 'ABCDEFGHIJ');
+        expect(rows.first.name.length, 10);
+      });
+
+      test('${format.label} : nom de 11+ caractères → wrappé proprement', () {
+        final content = ReceiptBuilder.buildContent(
+          Invoice(
+            id: '20260815123456',
+            clientName: 'Client Test',
+            createdAt: DateTime(2026, 8, 15, 14, 30),
+            items: const [
+              InvoiceItem(name: 'ABCDEFGHIJKLMNOP', quantity: 1, unitPrice: 100),
+            ],
+          ),
+          ReceiptSettings(format: format),
+        );
+        final rows = itemRows(content);
+        expect(rows.length, greaterThan(1),
+            reason: 'le nom de 14 caractères doit wrapper sur plusieurs lignes');
+        for (final row in rows) {
+          expect(row.name.length, lessThanOrEqualTo(10),
+              reason: 'ligne wrappée « ${row.name} » > 10 caractères');
+        }
+        // Aucun caractère perdu : la concaténation reconstitue le nom.
+        expect(rows.map((r) => r.name).join(), 'ABCDEFGHIJKLMNOP');
+      });
+
+      test('${format.label} : quantité à 3 chiffres (x999) non tronquée', () {
+        final content = ReceiptBuilder.buildContent(
+          Invoice(
+            id: '20260815123456',
+            clientName: 'Client Test',
+            createdAt: DateTime(2026, 8, 15, 14, 30),
+            items: const [
+              InvoiceItem(name: 'Article', quantity: 999, unitPrice: 100),
+            ],
+          ),
+          ReceiptSettings(format: format),
+        );
+        // « x999 » = 4 caractères pile = budget quantité : rien n'est coupé.
+        expect(itemRows(content).first.qty, 'x999');
+      });
+
+      test('${format.label} : prix de ligne compacté pour tenir en 8 caractères',
+          () {
+        final content = ReceiptBuilder.buildContent(
+          Invoice(
+            id: '20260815123456',
+            clientName: 'Client Test',
+            createdAt: DateTime(2026, 8, 15, 14, 30),
+            items: const [
+              // Sous-total 1 250 000 : « 1 250 000 » = 9 car. avec espace →
+              // _fitPrice retire l'espace : « 1250000 » (7 car.) tient en 8.
+              InvoiceItem(name: 'Article', quantity: 1, unitPrice: 1250000),
+            ],
+          ),
+          ReceiptSettings(format: format),
+        );
+        final price = itemRows(content).first.price;
+        expect(price, '1250000');
+        expect(price.length, lessThanOrEqualTo(8));
+      });
+
+      test('${format.label} : prix de ligne à 8 caractères pile conservé', () {
+        final content = ReceiptBuilder.buildContent(
+          Invoice(
+            id: '20260815123456',
+            clientName: 'Client Test',
+            createdAt: DateTime(2026, 8, 15, 14, 30),
+            items: const [
+              // Sous-total 12 500 000 : « 12 500 000 » (10 car. avec espace)
+              // → compacté : « 12500000 » = 8 caractères pile, non tronqué.
+              InvoiceItem(name: 'Article', quantity: 1, unitPrice: 12500000),
+            ],
+          ),
+          ReceiptSettings(format: format),
+        );
+        final price = itemRows(content).first.price;
+        expect(price, '12500000');
+        expect(price.length, 8);
+      });
+
+      test('${format.label} : SOUS-TOTAL et TOTAL À PAYER limités à 8 caractères',
+          () {
+        final content = ReceiptBuilder.buildContent(
+          Invoice(
+            id: '20260815123456',
+            clientName: 'Client Test',
+            createdAt: DateTime(2026, 8, 15, 14, 30),
+            items: const [
+              // Sous-total = total à payer = 12 500 000 → « 12500000 » (8).
+              InvoiceItem(name: 'Article', quantity: 1, unitPrice: 12500000),
+            ],
+          ),
+          ReceiptSettings(format: format),
+        );
+        final texts = content.plan
+            .whereType<ReceiptLine>()
+            .map((l) => l.text)
+            .toList();
+        expect(
+            texts.any((t) => t.contains('SOUS-TOTAL') && t.contains('12500000')),
+            isTrue,
+            reason: 'le montant du SOUS-TOTAL doit tenir en 8 caractères');
+        expect(texts, contains('12500000 FCFA'),
+            reason: 'le TOTAL À PAYER doit tenir en 8 caractères');
+      });
+    }
   });
 
   group('ReceiptBuilder.buildEscPosBytes', () {
