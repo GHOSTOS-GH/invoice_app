@@ -235,6 +235,10 @@ class BackupService {
         subject: filename,
       );
     } finally {
+      // Laisser le temps à l'application destinataire de lire le fichier
+      // avant de le supprimer : une suppression immédiate peut le rendre
+      // illisible (erreur « fichier introuvable » côté destinataire).
+      await Future.delayed(const Duration(seconds: 1));
       if (await file.exists()) await file.delete();
     }
   }

@@ -150,7 +150,46 @@ class PdfService {
         subject: 'Facture – ${invoice.clientName}',
       );
     } finally {
+      // Laisser le temps à l'application destinataire de lire le fichier
+      // avant de le supprimer : une suppression immédiate peut le rendre
+      // illisible (erreur « fichier introuvable » côté destinataire).
+      await Future.delayed(const Duration(seconds: 1));
       if (await file.exists()) await file.delete();
+    }
+  }
+
+  /// Partage plusieurs factures en un **seul** appel de partage natif
+  /// (liste de XFile) au lieu d'ouvrir le partage une fois par facture.
+  Future<void> shareInvoicesAsPdf(List<Invoice> invoices) async {
+    if (invoices.isEmpty) return;
+    final dir = await getTemporaryDirectory();
+    final files = <XFile>[];
+    try {
+      for (var i = 0; i < invoices.length; i++) {
+        final invoice = invoices[i];
+        final bytes = await generatePdf(invoice);
+        final slug = invoice.clientName.replaceAll(RegExp(r'[^\w]'), '_');
+        final id6 = invoice.id.length >= 6
+            ? invoice.id.substring(invoice.id.length - 6)
+            : invoice.id;
+        // Index suffixé pour garantir des noms uniques (même client,
+        // même réf.) : les fichiers temporaires doivent être distincts.
+        final file = File('${dir.path}/facture_${slug}_${id6}_${i + 1}.pdf');
+        await file.writeAsBytes(bytes);
+        files.add(XFile(file.path, mimeType: 'application/pdf'));
+      }
+      await Share.shareXFiles(
+        files,
+        subject: 'Factures (${invoices.length})',
+      );
+    } finally {
+      // Délai avant suppression : l'application destinataire doit avoir
+      // le temps de lire les fichiers (cf. _share).
+      await Future.delayed(const Duration(seconds: 1));
+      for (final f in files) {
+        final file = File(f.path);
+        if (await file.exists()) await file.delete();
+      }
     }
   }
 

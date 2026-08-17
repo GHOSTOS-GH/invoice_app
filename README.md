@@ -43,6 +43,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 - **Filigrane du logo** (assets/watermark/logo.png) sur toutes les factures générées
 - Export en image PNG ou JPG (idéal pour WhatsApp)
 - Partage natif direct depuis l'application
+- **Export groupé** : les factures sélectionnées sont générées puis partagées en **un seul partage natif** (liste de PDF), au lieu d'ouvrir le partage une fois par facture
 
 ### 🖨️ Reçu thermique & impression (Bluetooth / Wi-Fi)
 - **Aperçu temps réel** : le ticket thermique est simulé à l'écran et se met à jour instantanément quand les paramètres changent (rendu identique à l'impression)
@@ -66,7 +67,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 ### ⚙️ Paramètres
 - Gestion des clients enregistrés (renommer, supprimer, vider)
 - Historique des articles
-- **Bibliothèque produits** : ajout/modification avec photo compressée automatiquement et catégories
+- **Bibliothèque produits** : ajout/modification avec photo compressée automatiquement et catégories — la compression (redimensionnement + encodage JPEG) est déportée sur un **isolate via `compute()`** pour ne jamais bloquer le thread UI
 - Onglet **Sauvegarde** : export CSV, sauvegarde JSON et restauration (voir section dédiée)
 - Onglet **Reçu** : personnalisation du ticket thermique (boutique, logo, format 58/80 mm, éléments affichés) et configuration des imprimantes Bluetooth / Wi-Fi
 
@@ -280,6 +281,13 @@ Le module d'impression génère **le même ticket thermique** pour le Bluetooth 
 - **Navigation** : `IndexedStack` (état des onglets préservé) + transitions fluides
 - **Performance** : `ListView.builder`, chargement asynchrone, skeleton loaders
 - **Localisation** : `Locale('fr', 'FR')` avec delegates Material/Widgets/Cupertino
+
+### ⚡ Stabilité & performance
+
+- **Compression des photos produits sur isolate** : le décodage, le redimensionnement et l'encodage JPEG (package `image`) s'exécutent sur un **isolate via `compute()`**, plus jamais sur le thread UI (même approche que le logo du reçu thermique)
+- **Gardes `mounted` systématiques** après chaque `await` avant tout `setState()` (sélection de photo, grille produits, chargements) : plus aucune erreur « setState() called after dispose() »
+- **Aucune fuite de Ticker** : le `TabController` de la grille produits est disposé à la fermeture (`dispose()`) et **remplacé proprement** (l'ancien est disposé) à chaque rechargement
+- **Fichiers temporaires partagés** (CSV, JSON, PDF, PNG, JPG) : la suppression est retardée d'**1 seconde** après le partage pour laisser le temps à l'application destinataire de lire le fichier
 
 ## 🚧 Améliorations futures possibles
 

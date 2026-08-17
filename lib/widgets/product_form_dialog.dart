@@ -1,6 +1,9 @@
 // lib/widgets/product_form_dialog.dart
 
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
@@ -49,16 +52,20 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       maxHeight: 600,
       imageQuality: 75,
     );
+    if (!mounted) return;
     if (image != null) {
       final originalFile = File(image.path);
       final originalSize = await originalFile.length();
-      
+      if (!mounted) return;
+
       // Compression supplémentaire avec le package image
       final compressedPath = await _compressImage(image.path);
-      
+      if (!mounted) return;
+
       if (compressedPath != null) {
         final compressedFile = File(compressedPath);
         final compressedSize = await compressedFile.length();
+        if (!mounted) return;
         setState(() {
           _imagePath = compressedPath;
           _originalFileSize = originalSize;
@@ -78,31 +85,54 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     try {
       final originalFile = File(imagePath);
       final originalBytes = await originalFile.readAsBytes();
-      final decoded = img.decodeImage(originalBytes);
-      if (decoded == null) return null;
+      // Décodage, redimensionnement et encodage JPEG déportés sur un
+      // isolate via compute() : ces opérations sont coûteuses et
+      // bloquaient le thread UI (même classe de bug que le logo du reçu,
+      // déjà corrigé dans ReceiptBuilder).
+      final compressedBytes = await compute(
+        _compressImageIsolate,
+        (originalBytes, 800),
+        debugLabel: 'ProductFormDialog._compressImage',
+      );
+      if (compressedBytes == null) return null;
 
-      // Redimensionner si trop grand (max 800x800)
-      img.Image processed = decoded;
-      if (processed.width > 800 || processed.height > 800) {
-        processed = img.copyResize(
-          processed,
-          width: processed.width > 800 ? 800 : processed.width,
-          height: processed.height > 800 ? 800 : processed.height,
-        );
-      }
-
-      // Compresser en JPEG avec qualité 70%
-      final compressedBytes = img.encodeJpg(processed, quality: 70);
-      
       // Sauvegarder avec un nouveau nom
       final dir = originalFile.parent;
       final fileName = 'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final compressedFile = File('${dir.path}${Platform.pathSeparator}$fileName');
       await compressedFile.writeAsBytes(compressedBytes);
-      
+
       return compressedFile.path;
     } catch (e) {
       debugPrint('Erreur de compression: $e');
+      return null;
+    }
+  }
+
+  /// Point d'entrée de l'isolate : décode, redimensionne (max [maxDim]
+  /// pixels) puis encode en JPEG qualité 70%. Seuls des types
+  /// transmissibles circulent entre isolates (Uint8List / int), jamais
+  /// l'objet img.Image (non « sendable »).
+  static Uint8List? _compressImageIsolate((Uint8List, int) args) {
+    final originalBytes = args.$1;
+    final maxDim = args.$2;
+    try {
+      final decoded = img.decodeImage(originalBytes);
+      if (decoded == null) return null;
+
+      // Redimensionner si trop grand (max 800x800)
+      img.Image processed = decoded;
+      if (processed.width > maxDim || processed.height > maxDim) {
+        processed = img.copyResize(
+          processed,
+          width: processed.width > maxDim ? maxDim : processed.width,
+          height: processed.height > maxDim ? maxDim : processed.height,
+        );
+      }
+
+      // Compresser en JPEG avec qualité 70%
+      return Uint8List.fromList(img.encodeJpg(processed, quality: 70));
+    } catch (_) {
       return null;
     }
   }

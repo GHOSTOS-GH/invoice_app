@@ -307,7 +307,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   Future<void> _exportSelected() async {
     if (_selectedIds.isEmpty) return;
     final selectedInvoices = _invoices.where((inv) => _selectedIds.contains(inv.id)).toList();
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Export de ${selectedInvoices.length} facture(s)...'),
@@ -316,21 +316,20 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
         duration: const Duration(seconds: 2),
       ),
     );
-    
-    for (final invoice in selectedInvoices) {
-      try {
-        await _pdfService.shareAsPdf(invoice);
-        await Future.delayed(const Duration(milliseconds: 500));
-      } catch (e) {
-        if (!mounted) continue;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur pour ${invoice.clientName} : $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+
+    // Un seul partage groupé (liste de XFile) au lieu d'ouvrir le
+    // partage natif une fois par facture.
+    try {
+      await _pdfService.shareInvoicesAsPdf(selectedInvoices);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur d\'export : $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 

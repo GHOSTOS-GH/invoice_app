@@ -20,7 +20,9 @@ class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerPr
   List<Product> _products = [];
   List<String> _categories = [];
   String? _selectedCategory;
-  late TabController _tabController;
+  // Nullable : créé seulement à la fin de _loadData(), il peut ne pas
+  // exister si le widget est fermé pendant le chargement.
+  TabController? _tabController;
   bool _isLoading = true;
 
   @override
@@ -29,10 +31,19 @@ class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerPr
     _loadData();
   }
 
+  @override
+  void dispose() {
+    // Libère le TickerProvider pour éviter la fuite « Ticker was active ».
+    _tabController?.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     final products = await _productService.loadProducts();
+    if (!mounted) return;
     final categories = await _productService.getCategories();
+    if (!mounted) return;
     // Ajouter une catégorie "Tous"
     categories.insert(0, 'Tous');
     setState(() {
@@ -40,12 +51,18 @@ class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerPr
       _categories = categories;
       _selectedCategory = 'Tous';
     });
+    // Disposer l'ancien contrôleur avant d'en créer un nouveau (chaque
+    // TabController réserve un Ticker auprès du TickerProvider) : sans
+    // cela, chaque appel à _loadData() fuyait un Ticker.
+    _tabController?.dispose();
     _tabController = TabController(length: _categories.length, vsync: this);
-    _tabController.addListener(() {
+    _tabController!.addListener(() {
+      if (!mounted) return;
       setState(() {
-        _selectedCategory = _categories[_tabController.index];
+        _selectedCategory = _categories[_tabController!.index];
       });
     });
+    if (!mounted) return;
     setState(() => _isLoading = false);
   }
 
@@ -62,6 +79,7 @@ class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerPr
       builder: (ctx) => ProductFormDialog(
         onSave: (product) async {
           await _productService.addProduct(product);
+          if (!mounted) return;
           _loadData();
         },
       ),
@@ -75,6 +93,7 @@ class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerPr
         product: product,
         onSave: (updated) async {
           await _productService.updateProduct(updated);
+          if (!mounted) return;
           _loadData();
         },
       ),
