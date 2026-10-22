@@ -45,7 +45,7 @@ class _ItemFormDialogState extends State<ItemFormDialog> {
   void _save() {
     final name = _nameController.text.trim();
     final quantity = int.tryParse(_quantityController.text);
-    final price = double.tryParse(_priceController.text);
+    final price = int.tryParse(_priceController.text);
 
     if (quantity == null || quantity <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -115,8 +115,8 @@ class _ItemFormDialogState extends State<ItemFormDialog> {
               Expanded(
                 child: TextField(
                   controller: _priceController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: InputDecoration(
                     labelText: 'Prix unitaire',
                     prefixIcon: const Icon(Icons.attach_money, color: Color(0xFF2563EB)),

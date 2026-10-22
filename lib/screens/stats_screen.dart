@@ -63,18 +63,23 @@ class _StatsScreenState extends State<StatsScreen> {
     return _invoices.where((inv) => !inv.createdAt.isBefore(start)).toList();
   }
 
-  double get _totalCA => _periodInvoices.fold(0.0, (s, inv) => s + inv.total);
+  // Tous les montants sont des entiers FCFA (payableTotal fait foi).
+  int get _totalCA => _periodInvoices.fold(0, (s, inv) => s + inv.payableTotal);
   int get _invoiceCount => _periodInvoices.length;
-  double get _averageInvoice => _invoiceCount == 0 ? 0 : _totalCA / _invoiceCount;
+  int get _averageInvoice =>
+      _invoiceCount == 0 ? 0 : (_totalCA / _invoiceCount).round();
   int get _totalUnits => _periodInvoices.fold(0, (s, inv) => s + inv.totalQuantity);
-  double get _biggestInvoice =>
-      _periodInvoices.isEmpty ? 0 : _periodInvoices.map((i) => i.total).reduce((a, b) => a > b ? a : b);
+  int get _biggestInvoice => _periodInvoices.isEmpty
+      ? 0
+      : _periodInvoices
+          .map((i) => i.payableTotal)
+          .reduce((a, b) => a > b ? a : b);
 
   /// Série temporelle du CA : quotidienne (7/30 jours) ou mensuelle (tout).
-  List<({String label, String short, double value})> _caSeries() {
+  List<({String label, String short, int value})> _caSeries() {
     final now = DateTime.now();
     if (_period == _Period.all) {
-      final map = <String, ({String label, String short, double value})>{};
+      final map = <String, ({String label, String short, int value})>{};
       final sorted = List<Invoice>.from(_invoices)..sort((a, b) => a.createdAt.compareTo(b.createdAt));
       for (final inv in sorted) {
         final key = DateFormat('MMMM yyyy', 'fr_FR').format(inv.createdAt);
@@ -83,21 +88,21 @@ class _StatsScreenState extends State<StatsScreen> {
         map[key] = (
           label: key,
           short: short,
-          value: (existing?.value ?? 0) + inv.total,
+          value: (existing?.value ?? 0) + inv.payableTotal,
         );
       }
       return map.values.toList();
     }
 
     final days = _period == _Period.week ? 7 : 30;
-    final map = <String, double>{};
+    final map = <String, int>{};
     for (var i = days - 1; i >= 0; i--) {
       final day = now.subtract(Duration(days: i));
       map[DateFormat('E d/M', 'fr_FR').format(day)] = 0;
     }
     for (final inv in _periodInvoices) {
       final key = DateFormat('E d/M', 'fr_FR').format(inv.createdAt);
-      if (map.containsKey(key)) map[key] = map[key]! + inv.total;
+      if (map.containsKey(key)) map[key] = map[key]! + inv.payableTotal;
     }
     final keys = map.keys.toList();
     return [
@@ -112,20 +117,20 @@ class _StatsScreenState extends State<StatsScreen> {
     ];
   }
 
-  List<MapEntry<InvoiceStatus, double>> get _statusRepartition {
-    final map = <InvoiceStatus, double>{};
+  List<MapEntry<InvoiceStatus, int>> get _statusRepartition {
+    final map = <InvoiceStatus, int>{};
     for (final status in InvoiceStatus.values) {
       map[status] = _periodInvoices
           .where((inv) => inv.status == status)
-          .fold(0.0, (s, inv) => s + inv.total);
+          .fold(0, (s, inv) => s + inv.payableTotal);
     }
     return map.entries.toList();
   }
 
-  List<MapEntry<String, double>> _topClients(int count) {
-    final map = <String, double>{};
+  List<MapEntry<String, int>> _topClients(int count) {
+    final map = <String, int>{};
     for (final inv in _periodInvoices) {
-      map[inv.clientName] = (map[inv.clientName] ?? 0) + inv.total;
+      map[inv.clientName] = (map[inv.clientName] ?? 0) + inv.payableTotal;
     }
     final sorted = map.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     return sorted.take(count).toList();
@@ -255,7 +260,7 @@ class _StatsScreenState extends State<StatsScreen> {
             title: 'Top 5 produits',
             child: topProducts.isEmpty
                 ? _buildNoData('Aucun produit sur cette période')
-                : _buildRankedList(topProducts.map((e) => (label: e.key, value: '${e.value} unités', raw: e.value.toDouble(), unit: true)).toList()),
+                : _buildRankedList(topProducts.map((e) => (label: e.key, value: '${e.value} unités', raw: e.value, unit: true)).toList()),
           ),
           const SizedBox(height: 24),
         ],
@@ -424,7 +429,7 @@ class _StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  Widget _buildCaChart(List<({String label, String short, double value})> series) {
+  Widget _buildCaChart(List<({String label, String short, int value})> series) {
     final maxValue = series.map((e) => e.value).reduce((a, b) => a > b ? a : b);
     final maxY = maxValue <= 0 ? 1.0 : maxValue * 1.25;
 
@@ -438,8 +443,8 @@ class _StatsScreenState extends State<StatsScreen> {
             show: true,
             drawVerticalLine: false,
             horizontalInterval: maxY / 4,
-            getDrawingHorizontalLine: (value) => FlLine(
-              color: const Color(0xFFF1F5F9),
+            getDrawingHorizontalLine: (value) => const FlLine(
+              color: Color(0xFFF1F5F9),
               strokeWidth: 1,
               dashArray: [4, 6],
             ),
@@ -485,7 +490,7 @@ class _StatsScreenState extends State<StatsScreen> {
                 x: i,
                 barRods: [
                   BarChartRodData(
-                    toY: series[i].value,
+                    toY: series[i].value.toDouble(),
                     gradient: const LinearGradient(
                       colors: [_kPrimary, Color(0xFF60A5FA)],
                       begin: Alignment.topCenter,
@@ -502,8 +507,8 @@ class _StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  Widget _buildStatusCard(List<MapEntry<InvoiceStatus, double>> data) {
-    final total = data.fold(0.0, (s, e) => s + e.value);
+  Widget _buildStatusCard(List<MapEntry<InvoiceStatus, int>> data) {
+    final total = data.fold(0, (s, e) => s + e.value);
     if (total <= 0) return _buildNoData('Aucune vente sur cette période');
 
     return Column(
@@ -521,7 +526,7 @@ class _StatsScreenState extends State<StatsScreen> {
                     for (final entry in data)
                       if (entry.value > 0)
                         PieChartSectionData(
-                          value: entry.value,
+                          value: entry.value.toDouble(),
                           color: Color(entry.key.color),
                           radius: 62,
                           title: '',
@@ -561,7 +566,7 @@ class _StatsScreenState extends State<StatsScreen> {
                   ),
                 ),
                 Text(
-                  '${(total > 0 ? entry.value / total * 100 : 0).toStringAsFixed(0)}%',
+                  '${total > 0 ? (entry.value * 100 / total).round() : 0}%',
                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _kMuted),
                 ),
                 const SizedBox(width: 12),
@@ -580,7 +585,7 @@ class _StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  Widget _buildRankedList(List<({String label, String value, double raw, bool unit})> items) {
+  Widget _buildRankedList(List<({String label, String value, int raw, bool unit})> items) {
     final max = items.map((e) => e.raw).reduce((a, b) => a > b ? a : b);
     final colors = [
       const Color(0xFF2563EB),

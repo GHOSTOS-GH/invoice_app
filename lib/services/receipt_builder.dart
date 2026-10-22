@@ -178,8 +178,11 @@ class ReceiptBuilder {
   /// Formate [value] (formatNumber) et garantit qu'il tient dans
   /// [maxChars] caractères : on retire d'abord les espaces de milliers,
   /// puis on tronque en dernier recours (montants extrêmes).
-  static String _fitPrice(double value, int maxChars) {
-    var text = formatNumber(value);
+  ///
+  /// Le séparateur est l'espace normal (`sep: ' '`) : l'espace insécable
+  /// par défaut de formatNumber changerait les octets ESC/POS.
+  static String _fitPrice(int value, int maxChars) {
+    var text = formatNumber(value, sep: ' ');
     if (text.length <= maxChars) return text;
     final compact = text.replaceAll(' ', '');
     if (compact.length <= maxChars) return compact;
@@ -487,7 +490,7 @@ class ReceiptBuilder {
 
     // ---------- Totaux ----------
     final subtotal = invoice.total;
-    final discount = invoice.discount;
+    final discount = invoice.discountApplied;
     final taxRate = invoice.taxRate;
     final taxAmount = invoice.taxAmount;
     final payable = invoice.payableTotal;
@@ -502,7 +505,7 @@ class ReceiptBuilder {
           padLR('REMISE', '-${_fitPrice(discount, priceTarget)}', width)));
     }
     if (taxRate > 0) {
-      plan.add(ReceiptLine(padLR('TVA ${formatNumber(taxRate)}%',
+      plan.add(ReceiptLine(padLR('TVA ${formatNumber(taxRate.round(), sep: ' ')}%',
           _fitPrice(taxAmount, priceTarget), width)));
     }
     plan.add(ReceiptLine('=' * width));

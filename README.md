@@ -173,7 +173,11 @@ Les **prix historiques par client** sont dérivés automatiquement des factures 
 ### Format du CSV exporté
 
 Une ligne par article, avec les colonnes suivantes :
-`Date;Réf;Client;Statut;Article;Quantité;Prix unitaire;Sous-total;Total facture;Notes`
+`Date;Réf;Client;Statut;Article;Quantité;Prix unitaire;Sous-total article;Sous-total facture;Remise;TVA;Total à payer;Notes`
+
+Les totaux de la facture (sous-total, remise, TVA, total à payer) et les notes ne sont
+remplis que sur la **première ligne** de chaque facture, pour que les sommes du tableur
+ne comptent pas plusieurs fois le même montant.
 
 ### Format de sauvegarde (JSON)
 
@@ -204,7 +208,7 @@ Le fichier de sauvegarde complet contient tout, dans un seul document :
     {
       "name": "Consulting",
       "quantity": 5,
-      "unitPrice": 150.0
+      "unitPrice": 150
     }
   ]
 }
@@ -220,6 +224,8 @@ flutter test
 - `test/backup_service_test.dart` : export CSV (échappement, une ligne par article) et aller-retour sauvegarde → restauration
 - `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm), y compris les règles métier fixes du tableau (nom 10 / qté 4 / prix 8) : nom de 10 caractères pile sur une seule ligne, nom long wrappé, quantité à 3 chiffres (x999), prix compacté à 8 caractères, SOUS-TOTAL / TOTAL À PAYER à la limite de 8 caractères, prix extrême tronqué
 - `test/receipt_settings_service_test.dart` : persistance des paramètres du reçu et de l'imprimante par défaut
+- `test/invoice_money_test.dart` : calculs en entiers FCFA (TVA arrondie, remise plafonnée), formatters et relecture d'un ancien JSON décimal
+- `test/pdf_service_test.dart` : génération du PDF avec et sans remise / TVA
 
 ## 🖨️ Impression thermique (ESC/POS)
 

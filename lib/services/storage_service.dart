@@ -74,15 +74,15 @@ class StorageService {
   /// Retourne le dernier prix unitaire du [productName] vendu à [clientName].
   /// Les prix variant selon les clients, on recherche dans les factures
   /// du client en partant de la plus récente. Retourne null si aucun historique.
-  Future<double?> getLastPriceForClientProduct(String clientName, String productName) async {
+  Future<int?> getLastPriceForClientProduct(String clientName, String productName) async {
     final map = await getClientPriceMap(clientName);
     return map[productName.trim().toLowerCase()];
   }
 
   /// Retourne la map { nomProduit(minuscule) -> dernierPrixUnitaire } pour le client.
   /// La facture la plus récente du client fait foi pour chaque produit.
-  Future<Map<String, double>> getClientPriceMap(String clientName) async {
-    final result = <String, double>{};
+  Future<Map<String, int>> getClientPriceMap(String clientName) async {
+    final result = <String, int>{};
     final name = clientName.trim();
     if (name.isEmpty) return result;
 

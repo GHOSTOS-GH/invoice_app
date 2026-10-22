@@ -4,7 +4,9 @@ import 'dart:collection';
 class InvoiceItem {
   final String name;
   final int quantity;
-  final double unitPrice;
+
+  /// Prix unitaire en FCFA (toujours entier, jamais de décimal).
+  final int unitPrice;
 
   const InvoiceItem({
     required this.name,
@@ -12,7 +14,8 @@ class InvoiceItem {
     required this.unitPrice,
   });
 
-  double get subtotal => quantity * unitPrice;
+  /// Sous-total de la ligne en FCFA (entier).
+  int get subtotal => quantity * unitPrice;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -20,16 +23,18 @@ class InvoiceItem {
         'unitPrice': unitPrice,
       };
 
+  /// Lit un article, y compris depuis les anciens JSON qui contenaient des
+  /// prix décimaux (99.99 → 100) : le chargement ne doit jamais échouer.
   factory InvoiceItem.fromJson(Map<String, dynamic> json) => InvoiceItem(
         name: json['name'] as String,
-        quantity: (json['quantity'] as num).toInt(),
-        unitPrice: (json['unitPrice'] as num).toDouble(),
+        quantity: (json['quantity'] as num?)?.round() ?? 0,
+        unitPrice: (json['unitPrice'] as num?)?.round() ?? 0,
       );
 
   InvoiceItem copyWith({
     String? name,
     int? quantity,
-    double? unitPrice,
+    int? unitPrice,
   }) =>
       InvoiceItem(
         name: name ?? this.name,
@@ -58,10 +63,11 @@ class Invoice {
   final InvoiceStatus status;
   final String? notes;
 
-  /// Remise accordée sur la facture, en FCFA (0 = aucune).
-  final double discount;
+  /// Remise accordée sur la facture, en FCFA (0 = aucune). Entier.
+  final int discount;
 
-  /// Taux de TVA en pourcentage (0 = aucune).
+  /// Taux de TVA en pourcentage (0 = aucune). Seul montant non entier du
+  /// modèle : c'est un pourcentage, pas une somme d'argent.
   final double taxRate;
 
   Invoice({
@@ -78,13 +84,26 @@ class Invoice {
   UnmodifiableListView<InvoiceItem> get items => UnmodifiableListView(_items);
 
   /// Sous-total = somme des articles (avant remise et TVA).
-  double get total => _items.fold(0.0, (sum, item) => sum + item.subtotal);
+  int get total => _items.fold(0, (sum, item) => sum + item.subtotal);
 
-  /// Montant de la TVA = (sous-total − remise) × taux / 100.
-  double get taxAmount => (total - discount) * taxRate / 100;
+  /// Alias lisible de [total] : sous-total de la facture, en FCFA.
+  int get subtotal => total;
 
-  /// Total à payer = sous-total − remise + TVA.
-  double get payableTotal => total - discount + taxAmount;
+  /// Remise réellement appliquée : jamais négative, jamais supérieure au
+  /// sous-total (les anciennes données peuvent contenir une remise trop
+  /// grande).
+  int get discountApplied {
+    if (discount <= 0) return 0;
+    return discount > total ? total : discount;
+  }
+
+  /// Montant de la TVA = (sous-total − remise appliquée) × taux / 100,
+  /// arrondi à l'entier le plus proche (FCFA).
+  int get taxAmount => ((total - discountApplied) * taxRate / 100).round();
+
+  /// Total à payer = sous-total − remise + TVA. C'est LE montant de
+  /// référence : il doit être utilisé partout (écrans, PDF, reçu, CSV).
+  int get payableTotal => total - discountApplied + taxAmount;
 
   bool get hasBreakdown => discount > 0 || taxRate > 0;
 
@@ -101,6 +120,8 @@ class Invoice {
         'taxRate': taxRate,
       };
 
+  /// Lit une facture, y compris depuis les anciens JSON (prix 99.99,
+  /// remise 10.5…) : les montants sont arrondis via `.round()`.
   factory Invoice.fromJson(Map<String, dynamic> json) => Invoice(
         id: json['id'] as String,
         clientName: json['clientName'] as String,
@@ -113,7 +134,7 @@ class Invoice {
           orElse: () => InvoiceStatus.enCours,
         ),
         notes: json['notes'] as String?,
-        discount: (json['discount'] as num?)?.toDouble() ?? 0,
+        discount: (json['discount'] as num?)?.round() ?? 0,
         taxRate: (json['taxRate'] as num?)?.toDouble() ?? 0,
       );
 
@@ -124,7 +145,7 @@ class Invoice {
     List<InvoiceItem>? items,
     InvoiceStatus? status,
     String? notes,
-    double? discount,
+    int? discount,
     double? taxRate,
   }) =>
       Invoice(

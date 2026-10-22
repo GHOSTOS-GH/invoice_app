@@ -6,7 +6,7 @@ import '../utils/formatters.dart';
 
 class LastPriceHint extends StatelessWidget {
   /// Dernier prix unitaire connu (null = pas d'historique, on n'affiche rien).
-  final double? lastPrice;
+  final int? lastPrice;
 
   /// Nom du client concerné (null ou vide = libellé générique).
   final String? clientName;

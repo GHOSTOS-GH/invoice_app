@@ -378,7 +378,8 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   }
 
   int get _totalInvoices => _filteredInvoices.length;
-  double get _totalAmount => _filteredInvoices.fold(0.0, (sum, inv) => sum + inv.total);
+  int get _totalAmount =>
+      _filteredInvoices.fold(0, (sum, inv) => sum + inv.payableTotal);
   Map<InvoiceStatus, int> get _statusCount {
     return {
       InvoiceStatus.enCours: _filteredInvoices.where((inv) => inv.status == InvoiceStatus.enCours).length,
@@ -578,7 +579,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                     setState(() { _filterEnCours = v; _filterInvoices(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.enCours.color).withOpacity(0.2),
+                                  selectedColor: Color(InvoiceStatus.enCours.color).withValues(alpha: 0.2),
                                   labelStyle: TextStyle(color: _filterEnCours ? Color(InvoiceStatus.enCours.color) : const Color(0xFF64748B)),
                                   side: BorderSide(color: _filterEnCours ? Color(InvoiceStatus.enCours.color) : const Color(0xFFE2E8F0)),
                                 ),
@@ -589,7 +590,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                     setState(() { _filterEnLivraison = v; _filterInvoices(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.enLivraison.color).withOpacity(0.2),
+                                  selectedColor: Color(InvoiceStatus.enLivraison.color).withValues(alpha: 0.2),
                                   labelStyle: TextStyle(color: _filterEnLivraison ? Color(InvoiceStatus.enLivraison.color) : const Color(0xFF64748B)),
                                   side: BorderSide(color: _filterEnLivraison ? Color(InvoiceStatus.enLivraison.color) : const Color(0xFFE2E8F0)),
                                 ),
@@ -600,7 +601,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                     setState(() { _filterLivree = v; _filterInvoices(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.livree.color).withOpacity(0.2),
+                                  selectedColor: Color(InvoiceStatus.livree.color).withValues(alpha: 0.2),
                                   labelStyle: TextStyle(color: _filterLivree ? Color(InvoiceStatus.livree.color) : const Color(0xFF64748B)),
                                   side: BorderSide(color: _filterLivree ? Color(InvoiceStatus.livree.color) : const Color(0xFFE2E8F0)),
                                 ),
@@ -611,7 +612,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                     setState(() { _filterArchivee = v; _filterInvoices(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.archivee.color).withOpacity(0.2),
+                                  selectedColor: Color(InvoiceStatus.archivee.color).withValues(alpha: 0.2),
                                   labelStyle: TextStyle(color: _filterArchivee ? Color(InvoiceStatus.archivee.color) : const Color(0xFF64748B)),
                                   side: BorderSide(color: _filterArchivee ? Color(InvoiceStatus.archivee.color) : const Color(0xFFE2E8F0)),
                                 ),
@@ -794,7 +795,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
       tag: 'invoice-${invoice.id}',
       child: Card(
         elevation: 2,
-        shadowColor: Colors.blue.withOpacity(0.05),
+        shadowColor: Colors.blue.withValues(alpha: 0.05),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius)),
         child: InkWell(
           borderRadius: BorderRadius.circular(Constants.cardRadius),
@@ -861,12 +862,12 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(formatCurrency(invoice.total), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                    Text(formatCurrency(invoice.payableTotal), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
                     const SizedBox(height: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Color(invoice.status.color).withOpacity(0.2),
+                        color: Color(invoice.status.color).withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(invoice.status.label, style: TextStyle(fontSize: 12, color: Color(invoice.status.color), fontWeight: FontWeight.w600)),
@@ -884,7 +885,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   Widget _buildStatusChip(String label, int count, int color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: Color(color).withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: Color(color).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

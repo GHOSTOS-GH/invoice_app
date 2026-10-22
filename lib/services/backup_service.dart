@@ -37,8 +37,11 @@ class BackupService {
   /// Génère le contenu CSV des [invoices] (une ligne par article).
   ///
   /// Séparateur « ; » (convention française) pour une ouverture directe
-  /// dans Excel. Les nombres entiers sont écrits sans décimale pour
-  /// rester exploitables dans un tableur.
+  /// dans Excel. Tous les montants sont des entiers FCFA, écrits sans
+  /// décimale. Les totaux de la facture (sous-total, remise, TVA, total à
+  /// payer) et les notes ne sont remplis que sur la PREMIÈRE ligne de
+  /// chaque facture : les sommes Excel ne comptent ainsi pas plusieurs
+  /// fois le même total.
   String invoicesToCsv(List<Invoice> invoices) {
     final rows = <List<String>>[
       [
@@ -49,8 +52,11 @@ class BackupService {
         'Article',
         'Quantité',
         'Prix unitaire',
-        'Sous-total',
-        'Total facture',
+        'Sous-total article',
+        'Sous-total facture',
+        'Remise',
+        'TVA',
+        'Total à payer',
         'Notes',
       ],
     ];
@@ -58,8 +64,8 @@ class BackupService {
     for (final inv in invoices) {
       final date = DateFormat('dd/MM/yyyy HH:mm', 'fr_FR').format(inv.createdAt);
       final ref = _refId(inv.id);
-      final total = _num(inv.total);
       final notes = inv.notes ?? '';
+      var first = true;
       for (final item in inv.items) {
         rows.add([
           date,
@@ -68,11 +74,15 @@ class BackupService {
           inv.status.label,
           item.name,
           '${item.quantity}',
-          _num(item.unitPrice),
-          _num(item.subtotal),
-          total,
-          notes,
+          '${item.unitPrice}',
+          '${item.subtotal}',
+          first ? '${inv.subtotal}' : '',
+          first ? '${inv.discountApplied}' : '',
+          first ? '${inv.taxAmount}' : '',
+          first ? '${inv.payableTotal}' : '',
+          first ? notes : '',
         ]);
+        first = false;
       }
     }
 
@@ -88,9 +98,6 @@ class BackupService {
     }
     return field;
   }
-
-  static String _num(double value) =>
-      value == value.roundToDouble() ? value.round().toString() : value.toString();
 
   static String _refId(String id) =>
       id.length >= 6 ? '#${id.substring(id.length - 6)}' : id;

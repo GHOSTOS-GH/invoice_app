@@ -39,8 +39,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   Product? _selectedProduct;
   late TextEditingController _quantityController;
   late TextEditingController _priceController;
-  Map<String, double> _clientPrices = {};
+  Map<String, int> _clientPrices = {};
   String _lastPriceClient = '';
+
+  // Erreurs de saisie affichées sous les champs (la saisie reste ouverte).
+  String? _quantityError;
+  String? _priceError;
+  String? _discountError;
+  String? _taxRateError;
 
   @override
   void initState() {
@@ -48,10 +54,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     _invoice = widget.invoice;
     _clientNameController = TextEditingController(text: _invoice.clientName);
     _notesController = TextEditingController(text: _invoice.notes ?? '');
-    _discountController = TextEditingController(
-        text: _invoice.discount == 0 ? '' : _priceInputValue(_invoice.discount));
-    _taxRateController = TextEditingController(
-        text: _invoice.taxRate == 0 ? '' : _priceInputValue(_invoice.taxRate));
+    _discountController =
+        TextEditingController(text: _amountInputValue(_invoice.discount));
+    _taxRateController =
+        TextEditingController(text: _taxRateInputValue(_invoice.taxRate));
     _quantityController = TextEditingController();
     _priceController = TextEditingController();
     _lastPriceClient = _invoice.clientName.trim().toLowerCase();
@@ -92,10 +98,12 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       if (!_isEditing) {
         _clientNameController.text = _invoice.clientName;
         _notesController.text = _invoice.notes ?? '';
-        _discountController.text =
-            _invoice.discount == 0 ? '' : _priceInputValue(_invoice.discount);
-        _taxRateController.text =
-            _invoice.taxRate == 0 ? '' : _priceInputValue(_invoice.taxRate);
+        _discountController.text = _amountInputValue(_invoice.discount);
+        _taxRateController.text = _taxRateInputValue(_invoice.taxRate);
+        _discountError = null;
+        _taxRateError = null;
+        _quantityError = null;
+        _priceError = null;
         _isAddingItem = false;
         _selectedProduct = null;
         _quantityController.clear();
@@ -153,7 +161,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
         // Pré-remplit le prix avec le dernier prix vendu à ce client
         final lastPrice = _clientPrices[product.name.trim().toLowerCase()];
         if (lastPrice != null) {
-          _priceController.text = _priceInputValue(lastPrice);
+          _priceController.text = lastPrice.toString();
         } else {
           _priceController.clear();
         }
@@ -161,27 +169,25 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     });
   }
 
-  String _priceInputValue(double value) =>
-      value % 1 == 0 ? value.toInt().toString() : value.toString();
+  /// Valeur affichée dans un champ montant (FCFA entier, vide si 0).
+  String _amountInputValue(int value) => value == 0 ? '' : value.toString();
+
+  /// Valeur affichée dans le champ TVA (pourcentage entier, vide si 0).
+  String _taxRateInputValue(double value) =>
+      value == 0 ? '' : value.round().toString();
 
   void _addNewItem() {
     final quantity = int.tryParse(_quantityController.text.trim());
-    if (quantity == null || quantity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez entrer une quantité valide'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
+    final price = int.tryParse(_priceController.text.trim());
 
-    double? price = double.tryParse(_priceController.text.trim());
-    if (price == null || price <= 0) {
-      price = 1.0;
-      _priceController.text = '1';
-    }
+    setState(() {
+      _quantityError = (quantity == null || quantity <= 0)
+          ? 'Quantité obligatoire (entier supérieur à 0)'
+          : null;
+      _priceError = (price == null || price <= 0)
+          ? 'Prix obligatoire (entier supérieur à 0)'
+          : null;
+    });
 
     if (_selectedProduct == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -194,11 +200,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       return;
     }
 
+    // Saisie invalide : le panneau reste ouvert et l'article n'est pas ajouté.
+    if (_quantityError != null || _priceError != null) return;
+
     final newItems = List<InvoiceItem>.from(_invoice.items)
       ..add(InvoiceItem(
         name: _selectedProduct!.name,
-        quantity: quantity,
-        unitPrice: price,
+        quantity: quantity!,
+        unitPrice: price!,
       ));
     setState(() {
       _invoice = _invoice.copyWith(items: newItems);
@@ -206,6 +215,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       _selectedProduct = null;
       _quantityController.clear();
       _priceController.clear();
+      _quantityError = null;
+      _priceError = null;
     });
   }
 
@@ -282,9 +293,15 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                   controller: _quantityController,
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
+                  onChanged: (_) {
+                    if (_quantityError != null) {
+                      setState(() => _quantityError = null);
+                    }
+                  },
+                  decoration: InputDecoration(
                     labelText: 'Quantité *',
-                    prefixIcon: Icon(Icons.numbers),
+                    prefixIcon: const Icon(Icons.numbers),
+                    errorText: _quantityError,
                     isDense: true,
                   ),
                 ),
@@ -293,11 +310,17 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
               Expanded(
                 child: TextField(
                   controller: _priceController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
-                  decoration: const InputDecoration(
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onChanged: (_) {
+                    if (_priceError != null) {
+                      setState(() => _priceError = null);
+                    }
+                  },
+                  decoration: InputDecoration(
                     labelText: 'Prix unitaire (FCFA)',
-                    prefixIcon: Icon(Icons.attach_money),
+                    prefixIcon: const Icon(Icons.attach_money),
+                    errorText: _priceError,
                     isDense: true,
                   ),
                 ),
@@ -323,14 +346,32 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 
   Future<void> _saveChanges() async {
-    setState(() => _isSaving = true);
-    // Construit explicitement la facture (plutôt que copyWith) pour permettre
-    // d'effacer réellement les notes quand le champ est vidé.
-    double parsePositive(String text) {
-      final value = double.tryParse(text.trim().replaceAll(',', '.')) ?? 0;
-      return value < 0 ? 0 : value;
+    // Remise et TVA sont saisies en entiers (FCFA / pourcentage).
+    final discount = int.tryParse(_discountController.text.trim()) ?? 0;
+    final taxRate = int.tryParse(_taxRateController.text.trim()) ?? 0;
+    final subtotal = _invoice.subtotal;
+
+    final discountError = discount > subtotal
+        ? 'Remise limitée au sous-total (${formatCurrency(subtotal)})'
+        : null;
+    final taxRateError =
+        taxRate > 100 ? 'La TVA doit être comprise entre 0 et 100' : null;
+    if (discountError != null || taxRateError != null) {
+      // Saisie invalide : on reste en édition et on n'enregistre rien.
+      setState(() {
+        _discountError = discountError;
+        _taxRateError = taxRateError;
+      });
+      return;
     }
 
+    setState(() {
+      _isSaving = true;
+      _discountError = null;
+      _taxRateError = null;
+    });
+    // Construit explicitement la facture (plutôt que copyWith) pour permettre
+    // d'effacer réellement les notes quand le champ est vidé.
     final updatedInvoice = Invoice(
       id: _invoice.id,
       clientName: _clientNameController.text.trim().isEmpty
@@ -340,8 +381,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       items: _invoice.items.toList(),
       status: _invoice.status,
       notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
-      discount: parsePositive(_discountController.text),
-      taxRate: parsePositive(_taxRateController.text).clamp(0, 100).toDouble(),
+      discount: discount,
+      taxRate: taxRate.toDouble(),
     );
 
     final all = await _storageService.loadInvoices();
@@ -526,7 +567,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color: Colors.white,
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -605,24 +646,34 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                         Expanded(
                           child: TextField(
                             controller: _discountController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
-                            decoration: InputDecoration(labelText: 'Remise (FCFA)', prefixIcon: const Icon(Icons.percent, color: Color(0xFF2563EB)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, fillColor: const Color(0xFFF1F5F9)),
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            onChanged: (_) {
+                              if (_discountError != null) {
+                                setState(() => _discountError = null);
+                              }
+                            },
+                            decoration: InputDecoration(labelText: 'Remise (FCFA)', errorText: _discountError, prefixIcon: const Icon(Icons.percent, color: Color(0xFF2563EB)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, fillColor: const Color(0xFFF1F5F9)),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextField(
                             controller: _taxRateController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
-                            decoration: InputDecoration(labelText: 'TVA (%)', prefixIcon: const Icon(Icons.receipt, color: Color(0xFF2563EB)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, fillColor: const Color(0xFFF1F5F9)),
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            onChanged: (_) {
+                              if (_taxRateError != null) {
+                                setState(() => _taxRateError = null);
+                              }
+                            },
+                            decoration: InputDecoration(labelText: 'TVA (%)', errorText: _taxRateError, prefixIcon: const Icon(Icons.receipt, color: Color(0xFF2563EB)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, fillColor: const Color(0xFFF1F5F9)),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Text('Notes (optionnel)', style: const TextStyle(fontSize: 14, color: Color(0xFF64748B))),
+                    const Text('Notes (optionnel)', style: TextStyle(fontSize: 14, color: Color(0xFF64748B))),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _notesController,
@@ -704,11 +755,11 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               if (_invoice.hasBreakdown) ...[
-                                _TotalBreakdownLine('Sous-total', formatCurrency(_invoice.total)),
-                                if (_invoice.discount > 0)
-                                  _TotalBreakdownLine('Remise', '-${formatCurrency(_invoice.discount)}'),
+                                _TotalBreakdownLine('Sous-total', formatCurrency(_invoice.subtotal)),
+                                if (_invoice.discountApplied > 0)
+                                  _TotalBreakdownLine('Remise', '-${formatCurrency(_invoice.discountApplied)}'),
                                 if (_invoice.taxRate > 0)
-                                  _TotalBreakdownLine('TVA ${formatNumber(_invoice.taxRate)}%', '+${formatCurrency(_invoice.taxAmount)}'),
+                                  _TotalBreakdownLine('TVA ${formatNumber(_invoice.taxRate.round())}%', '+${formatCurrency(_invoice.taxAmount)}'),
                                 const SizedBox(height: 8),
                               ],
                               const Text('TOTAL À PAYER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70, letterSpacing: 1.2)),
@@ -852,7 +903,7 @@ class _EditableItemTileState extends State<_EditableItemTile> {
 
   void _update() {
     final quantity = int.tryParse(_quantityController.text);
-    final price = double.tryParse(_priceController.text);
+    final price = int.tryParse(_priceController.text);
     if (quantity == null || quantity <= 0 || price == null || price <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Valeurs invalides'), backgroundColor: Colors.red));
       return;
@@ -881,7 +932,7 @@ class _EditableItemTileState extends State<_EditableItemTile> {
           children: [
             Expanded(child: TextField(controller: _quantityController, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'Quantité', border: OutlineInputBorder(), isDense: true))),
             const SizedBox(width: 8),
-            Expanded(child: TextField(controller: _priceController, keyboardType: const TextInputType.numberWithOptions(decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))], decoration: const InputDecoration(labelText: 'Prix unitaire', border: OutlineInputBorder(), isDense: true))),
+            Expanded(child: TextField(controller: _priceController, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'Prix unitaire', border: OutlineInputBorder(), isDense: true))),
             IconButton(icon: const Icon(Icons.check, color: Colors.green), onPressed: _update, tooltip: 'Valider'),
             IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: widget.onDelete, tooltip: 'Supprimer'),
           ],

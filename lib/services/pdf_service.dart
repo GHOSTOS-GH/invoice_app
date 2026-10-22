@@ -249,14 +249,14 @@ class PdfService {
                 pw.Container(
                   width: 5,
                   height: 5,
-                  decoration: pw.BoxDecoration(
+                  decoration: const pw.BoxDecoration(
                     color: _blue,
                     shape: pw.BoxShape.circle,
                   ),
                 ),
                 pw.SizedBox(width: 6),
                 pw.Text(date,
-                    style: pw.TextStyle(
+                    style: const pw.TextStyle(
                       fontSize: 10,
                       color: _grey,
                     )),
@@ -368,12 +368,12 @@ class PdfService {
 
   pw.Widget _modernTable(Invoice invoice) {
     return pw.Table(
-      border: pw.TableBorder(
-        horizontalInside: const pw.BorderSide(
+      border: const pw.TableBorder(
+        horizontalInside: pw.BorderSide(
           color: PdfColor(0.941, 0.949, 0.961),
           width: 0.5,
         ),
-        bottom: const pw.BorderSide(
+        bottom: pw.BorderSide(
           color: PdfColor(0.882, 0.910, 0.941),
         ),
       ),
@@ -464,9 +464,9 @@ class PdfService {
             end: pw.Alignment.bottomRight,
           ),
           borderRadius: pw.BorderRadius.circular(14),
-          boxShadow: [
+          boxShadow: const [
             pw.BoxShadow(
-              color: const PdfColor(0.145, 0.388, 0.922, 0.3),
+              color: PdfColor(0.145, 0.388, 0.922, 0.3),
               blurRadius: 12,
             ),
           ],
@@ -474,7 +474,20 @@ class PdfService {
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text('TOTAL',
+            // Détail du calcul uniquement s'il y a une remise ou une TVA.
+            if (invoice.hasBreakdown) ...[
+              _modernTotalLine('Sous-total', formatCurrency(invoice.subtotal)),
+              if (invoice.discountApplied > 0)
+                _modernTotalLine(
+                    'Remise', '-${formatCurrency(invoice.discountApplied)}'),
+              if (invoice.taxRate > 0)
+                _modernTotalLine(
+                  'TVA ${formatNumber(invoice.taxRate.round())}%',
+                  '+${formatCurrency(invoice.taxAmount)}',
+                ),
+              pw.SizedBox(height: 8),
+            ],
+            pw.Text(invoice.hasBreakdown ? 'TOTAL À PAYER' : 'TOTAL',
                 style: pw.TextStyle(
                   color: _white70,
                   fontSize: 9,
@@ -482,20 +495,20 @@ class PdfService {
                   letterSpacing: 2,
                 )),
             pw.SizedBox(height: 6),
-            pw.Text(formatCurrency(invoice.total),
+            pw.Text(formatCurrency(invoice.payableTotal),
                 style: pw.TextStyle(
                   color: PdfColors.white,
                   fontSize: 26,
                   fontWeight: pw.FontWeight.bold,
                 )),
             pw.SizedBox(height: 8),
-            pw.Container(height: 1, color: PdfColor(1.0, 1.0, 1.0, 0.2)),
+            pw.Container(height: 1, color: const PdfColor(1.0, 1.0, 1.0, 0.2)),
             pw.SizedBox(height: 8),
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text('Articles:',
-                    style: pw.TextStyle(color: _white70, fontSize: 10)),
+                    style: const pw.TextStyle(color: _white70, fontSize: 10)),
                 pw.Text('${invoice.items.length}',
                     style: pw.TextStyle(
                       color: PdfColors.white,
@@ -509,7 +522,7 @@ class PdfService {
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text('Unités totales:',
-                    style: pw.TextStyle(color: _white70, fontSize: 10)),
+                    style: const pw.TextStyle(color: _white70, fontSize: 10)),
                 pw.Text('${invoice.totalQuantity}',
                     style: pw.TextStyle(
                       color: PdfColors.white,
@@ -523,6 +536,24 @@ class PdfService {
       ),
     );
   }
+
+  /// Une ligne « libellé → montant » du bloc total du PDF.
+  pw.Widget _modernTotalLine(String label, String value) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 4),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(label,
+                style: const pw.TextStyle(color: _white70, fontSize: 10)),
+            pw.Text(value,
+                style: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontSize: 10,
+                  fontWeight: pw.FontWeight.bold,
+                )),
+          ],
+        ),
+      );
 
   pw.Widget _modernNotesBox(Invoice invoice) {
     return pw.Container(
@@ -541,8 +572,8 @@ class PdfService {
               pw.Container(
                 width: 5,
                 height: 5,
-                decoration: pw.BoxDecoration(
-                  color: const PdfColor(0.85, 0.65, 0.1),
+                decoration: const pw.BoxDecoration(
+                  color: PdfColor(0.85, 0.65, 0.1),
                   shape: pw.BoxShape.circle,
                 ),
               ),
@@ -557,7 +588,7 @@ class PdfService {
           ),
           pw.SizedBox(height: 8),
           pw.Text(invoice.notes!,
-              style: pw.TextStyle(color: _grey, fontSize: 10)),
+              style: const pw.TextStyle(color: _grey, fontSize: 10)),
         ],
       ),
     );
@@ -582,7 +613,7 @@ class PdfService {
           pw.SizedBox(height: 2),
           pw.Text(
             'Solution conçue par Mohamed',
-            style: pw.TextStyle(color: _grey, fontSize: 8),
+            style: const pw.TextStyle(color: _grey, fontSize: 8),
             textAlign: pw.TextAlign.center,
           ),
         ],

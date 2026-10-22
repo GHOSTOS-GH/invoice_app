@@ -34,9 +34,13 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
   final FocusNode _clientFocusNode = FocusNode();
 
   // Dernier prix par produit (clé : nom du produit en minuscules) pour le client saisi
-  Map<String, double> _clientPrices = {};
+  Map<String, int> _clientPrices = {};
   String _lastPriceClient = '';
   int _priceLoadToken = 0;
+
+  // Erreurs de saisie affichées sous les champs (le panneau reste ouvert).
+  String? _quantityError;
+  String? _priceError;
 
   @override
   void initState() {
@@ -131,22 +135,16 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
 
   void _addItem() {
     final quantity = int.tryParse(_quantityController.text.trim());
-    if (quantity == null || quantity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez entrer une quantité valide'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
+    final price = int.tryParse(_priceController.text.trim());
 
-    double? price = double.tryParse(_priceController.text.trim());
-    if (price == null || price <= 0) {
-      price = 1.0;
-      _priceController.text = '1';
-    }
+    setState(() {
+      _quantityError = (quantity == null || quantity <= 0)
+          ? 'Quantité obligatoire (entier supérieur à 0)'
+          : null;
+      _priceError = (price == null || price <= 0)
+          ? 'Prix obligatoire (entier supérieur à 0)'
+          : null;
+    });
 
     if (_selectedProduct == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -158,11 +156,14 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
       return;
     }
 
+    // Saisie invalide : le panneau reste ouvert et l'article n'est pas ajouté.
+    if (_quantityError != null || _priceError != null) return;
+
     final productName = _selectedProduct!.name;
     final item = InvoiceItem(
       name: productName,
-      quantity: quantity,
-      unitPrice: price,
+      quantity: quantity!,
+      unitPrice: price!,
     );
 
     setState(() {
@@ -171,6 +172,8 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
       _priceController.clear();
       _selectedProduct = null;
       _isAddingItem = false;
+      _quantityError = null;
+      _priceError = null;
     });
 
     _historyService.saveProductName(productName);
@@ -195,7 +198,14 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
     _saveDraft();
   }
 
-  double _calculateTotal() => _items.fold(0.0, (sum, item) => sum + item.subtotal);
+  /// Facture en cours de saisie : le total affiché est toujours son
+  /// `payableTotal` (cet écran ne gère ni remise ni TVA).
+  Invoice get _previewInvoice => Invoice(
+        id: 'draft',
+        clientName: _clientNameController.text.trim(),
+        createdAt: DateTime.now(),
+        items: List.from(_items),
+      );
 
   Future<void> _finalizeInvoice() async {
     if (_items.isEmpty) {
@@ -278,16 +288,12 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
         // Pré-remplit le prix avec le dernier prix vendu à ce client
         final lastPrice = _clientPrices[product.name.trim().toLowerCase()];
         if (lastPrice != null) {
-          _priceController.text = _priceInputValue(lastPrice);
+          _priceController.text = lastPrice.toString();
         } else {
           _priceController.clear();
         }
       }
     });
-  }
-
-  String _priceInputValue(double value) {
-    return value % 1 == 0 ? value.toInt().toString() : value.toString();
   }
 
   @override
@@ -419,7 +425,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 2,
-      shadowColor: Colors.blue.withOpacity(0.05),
+      shadowColor: Colors.blue.withValues(alpha: 0.05),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Constants.cardRadius),
         side: BorderSide(color: Colors.grey.withAlpha(30)),
@@ -534,9 +540,15 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
                   controller: _quantityController,
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onChanged: (_) {
+                    if (_quantityError != null) {
+                      setState(() => _quantityError = null);
+                    }
+                  },
                   decoration: InputDecoration(
                     labelText: 'Quantité *',
                     prefixIcon: const Icon(Icons.numbers),
+                    errorText: _quantityError,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
@@ -545,11 +557,17 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
               Expanded(
                 child: TextField(
                   controller: _priceController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onChanged: (_) {
+                    if (_priceError != null) {
+                      setState(() => _priceError = null);
+                    }
+                  },
                   decoration: InputDecoration(
                     labelText: 'Prix unitaire (FCFA)',
                     prefixIcon: const Icon(Icons.attach_money),
+                    errorText: _priceError,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
@@ -637,7 +655,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          formatCurrency(_calculateTotal()),
+                          formatCurrency(_previewInvoice.payableTotal),
                           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                       ],
@@ -724,7 +742,7 @@ class _ItemEditDialogState extends State<_ItemEditDialog> {
 
   void _save() {
     final quantity = int.tryParse(_quantityController.text);
-    final price = double.tryParse(_priceController.text);
+    final price = int.tryParse(_priceController.text);
     if (quantity == null || quantity <= 0 || price == null || price <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Valeurs invalides'), backgroundColor: Colors.red),
@@ -772,8 +790,8 @@ class _ItemEditDialogState extends State<_ItemEditDialog> {
               Expanded(
                 child: TextField(
                   controller: _priceController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: InputDecoration(
                     labelText: 'Prix unitaire',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),

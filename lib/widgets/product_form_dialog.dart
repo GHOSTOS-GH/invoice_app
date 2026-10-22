@@ -199,8 +199,8 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                       top: 4,
                       child: Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2563EB),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF2563EB),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.edit, size: 14, color: Colors.white),
