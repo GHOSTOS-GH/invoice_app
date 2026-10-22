@@ -2,20 +2,46 @@
 
 Une application mobile moderne et élégante pour créer, gérer, suivre et partager vos factures, développée avec Flutter et Dart.
 
+## 📌 Règles du projet
+
+Les règles permanentes (stockage, montants, impression, qualité de code) sont
+consignées dans [`CLAUDE.md`](CLAUDE.md) — copie identique dans [`AGENTS.md`](AGENTS.md).
+Elles s'appliquent à toute évolution du projet.
+
+Points clés :
+
+- **Montants FCFA : toujours des entiers (`int`).** Aucun décimal dans les calculs, la
+  saisie, l'affichage ou les exports ; les arrondis se font avec `.round()`.
+  Seule exception : `taxRate` (pourcentage).
+- **Un seul total de référence :** `Invoice.payableTotal`
+  (= sous-total − remise appliquée + TVA). Il est utilisé dans les écrans,
+  l'historique, les statistiques, le PDF, le reçu thermique et le CSV.
+- **Rétro-compatibilité obligatoire** : les anciens JSON (prix `99.99`, remise `10.5`…)
+  restent lisibles et sont arrondis au chargement.
+- **Clés `SharedPreferences` figées** : `invoices`, `draft_invoice`, `last_login_date`,
+  `receipt_settings`, `default_printer_mac`, `default_printer_ip`,
+  `history_client_names`, `history_product_names`, `products`.
+- **Interdits** : changer l'`applicationId`, la signature, la logique d'impression
+  Bluetooth/Wi-Fi et les permissions du manifest.
+
+L'état de référence du projet (versions, `flutter analyze`, `flutter test`) est dans
+[`docs/BASELINE.md`](docs/BASELINE.md).
+
 ## ✨ Fonctionnalités
 
 ### 🆕 Création de facture
 - Nom du client avec **autocomplétion** basée sur l'historique
 - Ajout illimité d'articles depuis la **bibliothèque produits** (photos, catégories)
-- Quantité (obligatoire) + prix unitaire en FCFA
+- Quantité et prix unitaire **obligatoires**, en **entiers FCFA** (clavier numérique, chiffres uniquement) : une saisie vide ou nulle affiche l'erreur sous le champ et n'ajoute pas l'article (aucun prix par défaut n'est inventé)
 - **Prix intelligent par client** : le dernier prix vendu à ce client précis est pré-rempli automatiquement et affiché dans un encart contextuel (les prix peuvent varier selon les clients)
 - Brouillon automatique : la facture en cours est sauvegardée même si on quitte l'application
-- Total à payer et compteur d'articles mis à jour en temps réel
+- Total à payer (`payableTotal`) et compteur d'articles mis à jour en temps réel
 - Finalisation en un clic
 
 ### 📝 Édition des factures (détails)
-- Modification du client, du **statut** (dropdown) et des **notes**
-- **Ajout d'articles via la bibliothèque produits** (pas de saisie manuelle, même prix intelligent par client)
+- Modification du client, du **statut** (dropdown), des **notes**, de la **remise** (FCFA) et de la **TVA** (%) — toutes deux en entiers ; une remise supérieure au sous-total est refusée avec un message sous le champ
+- **Détail du total** (sous-total, remise, TVA) affiché uniquement si une remise ou une TVA est renseignée, puis **TOTAL À PAYER**
+- **Ajout d'articles via la bibliothèque produits** (pas de saisie manuelle, même prix intelligent par client, mêmes règles de saisie entière)
 - Édition/suppression d'articles **sans mélange des valeurs**, même après plusieurs suppressions
 - Duplication de facture, archivage/désarchivage, suppression
 - Partage direct : PDF, PNG ou JPG
@@ -40,6 +66,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 
 ### 📄 Export professionnel (PDF / PNG / JPG)
 - Document PDF au design moderne (en-tête, tableau, total en dégradé, notes, pied de page)
+- **Bloc total** : sous-total, remise, TVA et **TOTAL À PAYER** quand une remise ou une TVA existe ; sinon un simple `TOTAL`, comme avant
 - **Filigrane du logo** (assets/watermark/logo.png) sur toutes les factures générées
 - Export en image PNG ou JPG (idéal pour WhatsApp)
 - Partage natif direct depuis l'application
@@ -59,7 +86,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 - Identifiants par défaut : `Admin` / `0000` (modifiables dans `lib/utils/constants.dart`)
 
 ### 💾 Sauvegarde & export des données
-- **Export CSV** : toutes les factures (une ligne par article), séparateur `;` compatible Excel FR et BOM UTF-8 pour les accents
+- **Export CSV** : toutes les factures (une ligne par article), séparateur `;` compatible Excel FR et BOM UTF-8 pour les accents ; 13 colonnes dont les totaux de facture et les notes, remplis **uniquement sur la première ligne** de chaque facture pour ne pas fausser les sommes du tableur
 - **Sauvegarde complète (JSON)** : factures, produits et historiques d'autocomplétion dans un seul fichier
 - **Restauration** : sélection d'un fichier `.json`, aperçu du contenu (factures, produits, clients) avec confirmation avant remplacement
 - **Export CSV de la sélection filtrée** directement dans l'historique (période + statut + recherche combinés), avec total affiché par période
@@ -115,7 +142,7 @@ lib/
 │   └── login_screen.dart              # Connexion admin
 ├── utils/
 │   ├── constants.dart                 # Clés, identifiants, tailles
-│   └── formatters.dart                # Formatage FCFA
+│   └── formatters.dart                # formatNumber / formatCurrency (entiers, insécable par défaut)
 └── widgets/
     ├── last_price_hint.dart           # Encart « dernier prix par client »
     ├── product_grid_sheet.dart        # Grille de sélection de produits
@@ -145,6 +172,13 @@ lib/
 - **permission_handler** : Permissions runtime (Bluetooth Android 12+, etc.)
 - **qr_flutter** : QR code de la facture sur le reçu thermique
 - **flutter_launcher_icons** : Génération des icônes de lancement
+
+## 🗂️ Étapes de refonte
+
+| Étape | Branche | Contenu |
+|---|---|---|
+| P0 | `refonte/p0-regles` (tag `pre-refonte`) | Règles permanentes (`CLAUDE.md` / `AGENTS.md`) et état de référence (`docs/BASELINE.md`) |
+| P1 | `refonte/p1-argent` | Montants 100 % entiers FCFA, `payableTotal` unifié partout, CSV enrichi, formatters réécrits |
 
 ## 🚀 Installation et lancement
 
@@ -259,6 +293,7 @@ Le module d'impression génère **le même ticket thermique** pour le Bluetooth 
 - **Règles métier fixes, identiques sur les deux formats** (58 mm / 80 mm) : nom d'article **10 caractères max**, quantité **4 caractères max** (« x » inclus, couvre « x999 »), prix total de ligne **8 caractères max** (espaces inclus). Les cibles sont converties en ratios ESC/POS (grille de 12, somme = 12) cohérents avec l'allocation réelle de l'imprimante, mais les colonnes ne sont **jamais agrandies** : l'espace restant du papier (surtout en 80 mm) devient simplement de la marge / de l'espacement supplémentaire.
 - Le nom de l'article est wrappé exactement à 10 caractères et le prix est **compacté puis tronqué proprement** (`_fitPrice` : espaces de milliers retirés, puis troncature en dernier recours) s'il dépasse — aucun texte ne déborde du bord du ticket, quel que soit le format.
 - **Les montants des totaux** (SOUS-TOTAL, REMISE, TVA, TOTAL À PAYER) respectent la même limite de **8 caractères max** (espaces inclus) via `_fitPrice`, comme les prix de ligne des articles.
+- **Sortie imprimée inchangée** : côté ESC/POS, `formatNumber` / `formatCurrency` sont appelés avec `sep: ' '` (espace normale) ; l'espace insécable n'est utilisé que pour l'affichage à l'écran. Les octets envoyés à l'imprimante sont donc identiques à ceux d'avant le passage aux montants entiers.
 
 ### Permissions Android (AndroidManifest.xml)
 
