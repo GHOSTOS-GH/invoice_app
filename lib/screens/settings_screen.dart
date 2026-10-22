@@ -1,14 +1,14 @@
 // lib/screens/settings_screen.dart
 // Écran de paramètres : autocomplétions + bibliothèque produits + sauvegarde
 
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/product.dart';
 import '../services/backup_service.dart';
 import '../services/history_service.dart';
+import '../services/invoice_repository.dart';
+import '../services/product_image_store.dart';
 import '../services/product_service.dart';
-import '../services/storage_service.dart';
 import '../utils/constants.dart';
 import '../widgets/product_form_dialog.dart';
 import '../widgets/receipt_settings_tab.dart';
@@ -26,7 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     with SingleTickerProviderStateMixin {
   final HistoryService _historyService = HistoryService();
   final ProductService _productService = ProductService();
-  final StorageService _storageService = StorageService();
+  final InvoiceRepository _repository = InvoiceRepository();
   final BackupService _backupService = BackupService();
   late TabController _tabController;
 
@@ -40,29 +40,37 @@ class _SettingsScreenState extends State<SettingsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
+    _repository.addListener(_onRepositoryChanged);
     _load();
   }
 
   @override
   void dispose() {
+    _repository.removeListener(_onRepositoryChanged);
     _tabController.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _isLoading = true);
+    await _repository.load();
     final clients = await _historyService.getClientNames();
     final historyProducts = await _historyService.getProductNames();
     final libraryProducts = await _productService.loadProducts();
-    final invoices = await _storageService.loadInvoices();
     if (!mounted) return;
     setState(() {
       _clientNames = clients;
       _productNames = historyProducts;
       _products = libraryProducts;
-      _invoiceCount = invoices.length;
+      _invoiceCount = _repository.invoices.length;
       _isLoading = false;
     });
+  }
+
+  /// Le compteur de factures suit le repository.
+  void _onRepositoryChanged() {
+    if (!mounted) return;
+    setState(() => _invoiceCount = _repository.invoices.length);
   }
 
   Future<void> _deleteClient(String name) async {
@@ -77,10 +85,12 @@ class _SettingsScreenState extends State<SettingsScreen>
     setState(() => _productNames.remove(name));
   }
 
-  Future<void> _deleteLibraryProduct(String id) async {
-    await _productService.deleteProduct(id);
+  Future<void> _deleteLibraryProduct(Product product) async {
+    await _productService.deleteProduct(product.id);
+    // Supprime l'image uniquement si elle appartient à product_images.
+    await ProductImageStore.instance.deleteIfManaged(product.imagePath);
     if (!mounted) return;
-    setState(() => _products.removeWhere((p) => p.id == id));
+    setState(() => _products.removeWhere((p) => p.id == product.id));
   }
 
   void _editLibraryProduct(Product product) {
@@ -321,7 +331,8 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _exportCsv() async {
-    final invoices = await _storageService.loadInvoices();
+    await _repository.load();
+    final invoices = _repository.invoices.toList();
     if (invoices.isEmpty) {
       _showSnack('Aucune facture à exporter', color: Colors.red);
       return;
@@ -363,7 +374,9 @@ class _SettingsScreenState extends State<SettingsScreen>
             '• ${preview.invoiceCount} facture(s)\n'
             '• ${preview.productCount} produit(s)\n'
             '• ${preview.clientCount} client(s) enregistré(s)\n\n'
-            'Les données actuelles seront entièrement remplacées. Continuer ?',
+            'Les données actuelles seront entièrement remplacées.\n\n'
+            'Une sauvegarde de sécurité sera créée automatiquement avant la '
+            'restauration. Continuer ?',
           ),
           actions: [
             TextButton(
@@ -552,14 +565,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 4),
-                        leading: CircleAvatar(
-                          backgroundImage: product.imagePath != null
-                              ? FileImage(File(product.imagePath!))
-                              : null,
-                          child: product.imagePath == null
-                              ? Icon(Icons.image, color: Colors.grey[400])
-                              : null,
-                        ),
+                        leading: _buildProductThumbnail(product),
                         title: Text(product.name),
                         subtitle: Text(product.category),
                         trailing: Row(
@@ -574,7 +580,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               icon: const Icon(Icons.delete,
                                   size: 20, color: Colors.red),
                               onPressed: () =>
-                                  _deleteLibraryProduct(product.id),
+                                  _deleteLibraryProduct(product),
                             ),
                           ],
                         ),
@@ -584,6 +590,25 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _buildProductThumbnail(Product product) {
+    final file = ProductImageStore.instance.resolve(product.imagePath);
+    final placeholder = Icon(Icons.image, color: Colors.grey[400]);
+    return ClipOval(
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: file == null
+            ? placeholder
+            : Image.file(
+                file,
+                fit: BoxFit.cover,
+                cacheWidth: 300,
+                errorBuilder: (_, __, ___) => placeholder,
+              ),
+      ),
     );
   }
 

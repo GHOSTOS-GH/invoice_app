@@ -1,8 +1,8 @@
 // lib/widgets/product_grid_sheet.dart
 
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/product.dart';
+import '../services/product_image_store.dart';
 import '../services/product_service.dart';
 import 'product_form_dialog.dart';
 
@@ -210,6 +210,7 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final imageFile = ProductImageStore.instance.resolve(product.imagePath);
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -222,8 +223,16 @@ class _ProductCard extends StatelessWidget {
             Expanded(
               child: ClipRRect(
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                child: product.imagePath != null && File(product.imagePath!).existsSync()
-                    ? Image.file(File(product.imagePath!), fit: BoxFit.cover)
+                child: imageFile != null
+                    ? Image.file(
+                        imageFile,
+                        fit: BoxFit.cover,
+                        cacheWidth: 300,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Colors.grey[200],
+                          child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                        ),
+                      )
                     : Container(
                         color: Colors.grey[200],
                         child: const Icon(Icons.image_not_supported, color: Colors.grey),

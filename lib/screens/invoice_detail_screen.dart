@@ -4,7 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/invoice.dart';
 import '../models/product.dart';
-import '../services/storage_service.dart';
+import '../services/client_price_index.dart';
+import '../services/invoice_repository.dart';
 import '../services/pdf_service.dart';
 import '../utils/formatters.dart';
 import '../utils/constants.dart';
@@ -31,7 +32,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   late TextEditingController _notesController;
   late TextEditingController _discountController;
   late TextEditingController _taxRateController;
-  final StorageService _storageService = StorageService();
+  final InvoiceRepository _repository = InvoiceRepository();
+  final ClientPriceIndex _priceIndex = ClientPriceIndex();
   final PdfService _pdfService = PdfService();
 
   // Ajout d'articles en mode édition (via la bibliothèque produits)
@@ -39,8 +41,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   Product? _selectedProduct;
   late TextEditingController _quantityController;
   late TextEditingController _priceController;
-  Map<String, int> _clientPrices = {};
-  String _lastPriceClient = '';
 
   // Erreurs de saisie affichées sous les champs (la saisie reste ouverte).
   String? _quantityError;
@@ -60,9 +60,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
         TextEditingController(text: _taxRateInputValue(_invoice.taxRate));
     _quantityController = TextEditingController();
     _priceController = TextEditingController();
-    _lastPriceClient = _invoice.clientName.trim().toLowerCase();
     _clientNameController.addListener(_onClientNameChangedForPrices);
-    _loadClientPrices();
   }
 
   @override
@@ -78,17 +76,17 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 
   void _onClientNameChangedForPrices() {
-    final name = _clientNameController.text.trim();
-    if (name.isEmpty || name.toLowerCase() == _lastPriceClient) return;
-    _lastPriceClient = name.toLowerCase();
-    _loadClientPrices();
+    if (!mounted) return;
+    setState(() {});
   }
 
-  Future<void> _loadClientPrices() async {
-    final prices = await _storageService.getClientPriceMap(_lastPriceClient);
-    if (!mounted) return;
-    setState(() => _clientPrices = prices);
-  }
+  /// Dernière vente de [product] au client saisi, en excluant la facture
+  /// en cours d'édition.
+  LastSale? _lastSaleFor(Product product) => _priceIndex.lastSale(
+        _clientNameController.text,
+        product.name,
+        excludeInvoiceId: _invoice.id,
+      );
 
   String _formatDate(DateTime date) => DateFormat('EEEE dd MMMM yyyy à HH:mm', 'fr_FR').format(date);
 
@@ -158,10 +156,11 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       final isSameProduct = _selectedProduct?.id == product.id;
       _selectedProduct = product;
       if (!isSameProduct) {
-        // Pré-remplit le prix avec le dernier prix vendu à ce client
-        final lastPrice = _clientPrices[product.name.trim().toLowerCase()];
-        if (lastPrice != null) {
-          _priceController.text = lastPrice.toString();
+        // Pré-remplit le prix avec le dernier prix vendu à ce client,
+        // hors facture en cours d'édition.
+        final lastSale = _lastSaleFor(product);
+        if (lastSale != null) {
+          _priceController.text = lastSale.price.toString();
         } else {
           _priceController.clear();
         }
@@ -330,8 +329,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
           LastPriceHint(
             lastPrice: _selectedProduct == null
                 ? null
-                : _clientPrices[_selectedProduct!.name.trim().toLowerCase()],
-            clientName: _invoice.clientName,
+                : _lastSaleFor(_selectedProduct!)?.price,
+            clientName: _clientNameController.text,
           ),
           const SizedBox(height: 14),
           ElevatedButton.icon(
@@ -385,12 +384,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       taxRate: taxRate.toDouble(),
     );
 
-    final all = await _storageService.loadInvoices();
-    final idx = all.indexWhere((inv) => inv.id == updatedInvoice.id);
-    if (idx != -1) {
-      all[idx] = updatedInvoice;
-      await _storageService.saveInvoices(all);
-    }
+    await _repository.update(updatedInvoice);
+    if (!mounted) return;
 
     setState(() {
       _invoice = updatedInvoice;
@@ -420,9 +415,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     );
     if (confirm != true) return;
 
-    final all = await _storageService.loadInvoices();
-    all.removeWhere((inv) => inv.id == _invoice.id);
-    await _storageService.saveInvoices(all);
+    await _repository.removeByIds([_invoice.id]);
 
     if (!mounted) return;
     widget.onInvoiceUpdated();

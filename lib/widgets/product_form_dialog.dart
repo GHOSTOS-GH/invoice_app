@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
 import '../models/product.dart';
+import '../services/product_image_store.dart';
 
 class ProductFormDialog extends StatefulWidget {
   final Product? product;
@@ -66,14 +67,21 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
         final compressedFile = File(compressedPath);
         final compressedSize = await compressedFile.length();
         if (!mounted) return;
+        // Copie durable : seul le NOM du fichier est conservé dans le produit.
+        final storedName =
+            await ProductImageStore.instance.importFile(compressedFile);
+        if (!mounted) return;
         setState(() {
-          _imagePath = compressedPath;
+          _imagePath = storedName;
           _originalFileSize = originalSize;
           _compressedFileSize = compressedSize;
         });
       } else {
+        final storedName =
+            await ProductImageStore.instance.importFile(File(image.path));
+        if (!mounted) return;
         setState(() {
-          _imagePath = image.path;
+          _imagePath = storedName;
           _originalFileSize = originalSize;
           _compressedFileSize = originalSize;
         });
@@ -155,6 +163,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
     setState(() => _isLoading = true);
 
+    final previousImagePath = widget.product?.imagePath;
     final product = Product(
       id: widget.product?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
@@ -162,12 +171,19 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       imagePath: _imagePath,
     );
 
+    // L'ancienne image est supprimée seulement si elle a été remplacée.
+    if (previousImagePath != null && previousImagePath != _imagePath) {
+      await ProductImageStore.instance.deleteIfManaged(previousImagePath);
+    }
+    if (!mounted) return;
+
     widget.onSave(product);
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    final imageFile = ProductImageStore.instance.resolve(_imagePath);
     return AlertDialog(
       title: Text(widget.product == null ? 'Nouveau produit' : 'Modifier le produit'),
       content: SingleChildScrollView(
@@ -186,10 +202,19 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: Colors.grey[300]!),
                     ),
-                    child: _imagePath != null
+                    child: imageFile != null
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(16),
-                            child: Image.file(File(_imagePath!), fit: BoxFit.cover),
+                            child: Image.file(
+                              imageFile,
+                              fit: BoxFit.cover,
+                              cacheWidth: 300,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.add_photo_alternate_outlined,
+                                size: 44,
+                                color: Colors.grey,
+                              ),
+                            ),
                           )
                         : const Icon(Icons.add_photo_alternate_outlined, size: 44, color: Colors.grey),
                   ),

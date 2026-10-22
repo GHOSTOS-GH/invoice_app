@@ -8,6 +8,8 @@ import 'screens/history_screen.dart';
 import 'screens/stats_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/auth_service.dart';
+import 'services/invoice_repository.dart';
+import 'services/product_image_store.dart';
 
 // Palette de l'application (bleu professionnel moderne)
 const Color kPrimary = Color(0xFF2563EB);
@@ -24,6 +26,10 @@ const Color kDanger = Color(0xFFDC2626);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR', null);
+  // Dossier durable des images produit + migration des anciens chemins.
+  await ProductImageStore.instance.init();
+  // Chargement unique de la source de données des factures.
+  await InvoiceRepository().load();
   runApp(const InvoiceApp());
 }
 
@@ -263,20 +269,19 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
-  final GlobalKey<_HistoryScreenWrapperState> _historyKey = GlobalKey();
 
   void _onInvoiceCreated() {
     setState(() => _currentIndex = 1);
-    _historyKey.currentState?.refresh();
   }
 
-  void _onInvoiceUpdated() => _historyKey.currentState?.refresh();
+  // Les écrans écoutent le repository : aucun rafraîchissement manuel.
+  void _onInvoiceUpdated() {}
 
   @override
   Widget build(BuildContext context) {
     final screens = [
       NewInvoiceScreen(onInvoiceCreated: _onInvoiceCreated),
-      _HistoryScreenWrapper(key: _historyKey, onInvoiceUpdated: _onInvoiceUpdated),
+      HistoryScreen(onInvoiceUpdated: _onInvoiceUpdated),
       const StatsScreen(),
       SettingsScreen(onDataRestored: _onInvoiceUpdated),
     ];
@@ -310,27 +315,6 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _HistoryScreenWrapper extends StatefulWidget {
-  final VoidCallback onInvoiceUpdated;
-  const _HistoryScreenWrapper({super.key, required this.onInvoiceUpdated});
-  @override
-  State<_HistoryScreenWrapper> createState() => _HistoryScreenWrapperState();
-}
-
-class _HistoryScreenWrapperState extends State<_HistoryScreenWrapper> {
-  final GlobalKey<HistoryScreenState> _historyScreenKey = GlobalKey();
-
-  void refresh() => _historyScreenKey.currentState?.refreshData();
-
-  @override
-  Widget build(BuildContext context) {
-    return HistoryScreen(
-      key: _historyScreenKey,
-      onInvoiceUpdated: widget.onInvoiceUpdated,
     );
   }
 }

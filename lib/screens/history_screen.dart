@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/invoice.dart';
 import '../services/backup_service.dart';
-import '../services/storage_service.dart';
+import '../services/invoice_repository.dart';
 import '../services/pdf_service.dart';
 import '../utils/formatters.dart';
 import '../utils/constants.dart';
@@ -30,7 +30,7 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveClientMixin {
-  final _storageService = StorageService();
+  final _repository = InvoiceRepository();
   final _pdfService = PdfService();
   List<Invoice> _invoices = [];
   List<Invoice> _filteredInvoices = [];
@@ -63,6 +63,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   @override
   void initState() {
     super.initState();
+    _repository.addListener(_onRepositoryChanged);
     _loadInvoices();
     _searchController.addListener(_onSearchChanged);
     _scrollController.addListener(_onScroll);
@@ -70,6 +71,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
 
   @override
   void dispose() {
+    _repository.removeListener(_onRepositoryChanged);
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _scrollController.dispose();
@@ -173,25 +175,34 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
       _isLoading = true;
       _loadingError = false;
     });
-    try {
-      final invoices = await _storageService.loadInvoices();
-      if (!mounted) return;
-      setState(() {
-        _invoices = invoices;
-        _filterInvoices();
-        _isLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _loadingError = true;
-      });
-    }
+    await _repository.load();
+    if (!mounted) return;
+    setState(() {
+      _syncFromRepository();
+      _isLoading = false;
+      _loadingError = _repository.hasLoadError;
+    });
   }
 
+  /// Recopie l'état du repository dans les listes locales (filtres / tri).
+  void _syncFromRepository() {
+    _invoices = List<Invoice>.from(_repository.invoices);
+    _filterInvoices();
+  }
+
+  void _onRepositoryChanged() {
+    if (!mounted) return;
+    setState(() {
+      _syncFromRepository();
+      _isLoading = false;
+      _loadingError = _repository.hasLoadError;
+    });
+  }
+
+  /// API publique conservée pour les appelants existants.
   void refreshData() {
-    _loadInvoices();
+    if (!mounted) return;
+    setState(_syncFromRepository);
   }
 
   String _formatDate(DateTime date) => DateFormat('dd/MM/yyyy à HH:mm', 'fr_FR').format(date);
@@ -259,10 +270,9 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     if (confirm != true) return;
 
     final deletedCount = _selectedIds.length;
-    _invoices.removeWhere((inv) => _selectedIds.contains(inv.id));
-    await _storageService.saveInvoices(_invoices);
+    await _repository.removeByIds(_selectedIds);
+    if (!mounted) return;
     setState(() {
-      _filterInvoices();
       _isSelectionMode = false;
       _selectedIds.clear();
       _displayedCount = 50;
@@ -438,7 +448,6 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                   ],
                 ),
                 IconButton(icon: const Icon(Icons.checklist), onPressed: () => setState(() => _isSelectionMode = true)),
-                IconButton(icon: const Icon(Icons.refresh), onPressed: _loadInvoices),
               ],
         bottom: _isSelectionMode
             ? null
@@ -764,20 +773,8 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
 
   Future<void> _updateInvoiceStatus(Invoice invoice, InvoiceStatus newStatus) async {
     final updatedInvoice = invoice.copyWith(status: newStatus);
-    final all = await _storageService.loadInvoices();
-    final idx = all.indexWhere((inv) => inv.id == invoice.id);
-    if (idx != -1) {
-      all[idx] = updatedInvoice;
-      await _storageService.saveInvoices(all);
-    }
+    await _repository.update(updatedInvoice);
     if (!mounted) return;
-    setState(() {
-      final listIdx = _invoices.indexWhere((inv) => inv.id == invoice.id);
-      if (listIdx != -1) {
-        _invoices[listIdx] = updatedInvoice;
-      }
-      _filterInvoices();
-    });
     widget.onInvoiceUpdated();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -791,9 +788,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   }
 
   Widget _buildInvoiceCard(Invoice invoice, bool isSelected, int index) {
-    return Hero(
-      tag: 'invoice-${invoice.id}',
-      child: Card(
+    return Card(
         elevation: 2,
         shadowColor: Colors.blue.withValues(alpha: 0.05),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius)),
@@ -878,8 +873,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildStatusChip(String label, int count, int color) {

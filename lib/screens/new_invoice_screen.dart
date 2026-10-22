@@ -4,9 +4,12 @@ import 'package:flutter/services.dart';
 import '../models/invoice.dart';
 import '../models/product.dart';
 import '../services/storage_service.dart';
-import '../services/history_service.dart'; 
+import '../services/history_service.dart';
+import '../services/client_price_index.dart';
+import '../services/invoice_repository.dart';
 import '../utils/formatters.dart';
 import '../utils/constants.dart';
+import '../utils/text_utils.dart';
 import '../widgets/product_grid_sheet.dart';
 import '../widgets/last_price_hint.dart';
 
@@ -33,10 +36,9 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
   bool _showClientSuggestions = false;
   final FocusNode _clientFocusNode = FocusNode();
 
-  // Dernier prix par produit (clé : nom du produit en minuscules) pour le client saisi
+  // Dernier prix par produit (clé normalisée) pour le client saisi.
   Map<String, int> _clientPrices = {};
   String _lastPriceClient = '';
-  int _priceLoadToken = 0;
 
   // Erreurs de saisie affichées sous les champs (le panneau reste ouvert).
   String? _quantityError;
@@ -67,6 +69,9 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
         _items.addAll(draft.items);
       }
     }
+    // Garantit que les derniers prix sont disponibles (chargement unique).
+    await InvoiceRepository().load();
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -118,13 +123,11 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
     final suggestions = await _historyService.searchClientNames(clientText);
     if (!mounted) return;
 
-    // Charge (une seule fois par nom de client) la table des derniers prix
-    if (clientText.trim().toLowerCase() != _lastPriceClient) {
-      final token = ++_priceLoadToken;
-      final prices = await _storageService.getClientPriceMap(clientText);
-      if (!mounted || token != _priceLoadToken) return;
-      _clientPrices = prices;
-      _lastPriceClient = clientText.trim().toLowerCase();
+    // L'index est synchrone : la table des derniers prix suit le client saisi.
+    final clientKey = normalizeKey(clientText);
+    if (clientKey != _lastPriceClient) {
+      _clientPrices = ClientPriceIndex().pricesForClient(clientText);
+      _lastPriceClient = clientKey;
     }
 
     setState(() {
@@ -233,7 +236,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
     );
 
     try {
-      await _storageService.addInvoice(invoice);
+      await InvoiceRepository().add(invoice);
       if (clientName != 'Client inconnu') {
         await _historyService.saveClientName(clientName);
       }
@@ -286,7 +289,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
       _selectedProduct = product;
       if (!isSameProduct) {
         // Pré-remplit le prix avec le dernier prix vendu à ce client
-        final lastPrice = _clientPrices[product.name.trim().toLowerCase()];
+        final lastPrice = _clientPrices[normalizeKey(product.name)];
         if (lastPrice != null) {
           _priceController.text = lastPrice.toString();
         } else {
@@ -577,7 +580,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
           LastPriceHint(
             lastPrice: _selectedProduct == null
                 ? null
-                : _clientPrices[_selectedProduct!.name.trim().toLowerCase()],
+                : _clientPrices[normalizeKey(_selectedProduct!.name)],
             clientName: _clientNameController.text,
           ),
           const SizedBox(height: 14),

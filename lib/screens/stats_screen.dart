@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../models/invoice.dart';
-import '../services/storage_service.dart';
+import '../services/invoice_repository.dart';
 import '../utils/formatters.dart';
 import '../widgets/skeleton_loader.dart';
 
@@ -25,7 +25,7 @@ class StatsScreen extends StatefulWidget {
 }
 
 class _StatsScreenState extends State<StatsScreen> {
-  final _storageService = StorageService();
+  final _repository = InvoiceRepository();
   List<Invoice> _invoices = [];
   bool _isLoading = true;
   _Period _period = _Period.week;
@@ -33,21 +33,32 @@ class _StatsScreenState extends State<StatsScreen> {
   @override
   void initState() {
     super.initState();
+    _repository.addListener(_onRepositoryChanged);
     _load();
   }
 
+  @override
+  void dispose() {
+    _repository.removeListener(_onRepositoryChanged);
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    try {
-      final invoices = await _storageService.loadInvoices();
-      if (!mounted) return;
-      setState(() {
-        _invoices = invoices;
-        _isLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-    }
+    await _repository.load();
+    if (!mounted) return;
+    setState(() {
+      _invoices = _repository.invoices.toList();
+      _isLoading = false;
+    });
+  }
+
+  /// Les statistiques suivent le repository : aucune actualisation manuelle.
+  void _onRepositoryChanged() {
+    if (!mounted) return;
+    setState(() {
+      _invoices = _repository.invoices.toList();
+      _isLoading = false;
+    });
   }
 
   // ---------- Données calculées ----------
