@@ -46,7 +46,7 @@ void main() {
         id: '20260815123456',
         clientName: 'Client Test',
         createdAt: DateTime(2026, 8, 15, 14, 30),
-        items: const [
+        items: [
           InvoiceItem(name: 'Article A', quantity: 1, unitPrice: 1000),
         ],
       );

@@ -1,6 +1,8 @@
 // lib/screens/history_screen.dart
 // Écran d'historique avec filtres, tri, statistiques, pagination, export groupé
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/invoice.dart';
@@ -57,6 +59,9 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   final ScrollController _scrollController = ScrollController();
   int _displayedCount = 50;
 
+  /// Minuteur de la recherche (250 ms), annulé dans dispose.
+  Timer? _searchDebounce;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -71,6 +76,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _repository.removeListener(_onRepositoryChanged);
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
@@ -88,21 +94,28 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     }
   }
 
+  /// Recherche différée : une seule mise à jour après 250 ms de calme.
   void _onSearchChanged() {
-    setState(() {
-      _searchQuery = _searchController.text.toLowerCase();
-      _filterInvoices();
-      _displayedCount = 50;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() {
+        _searchQuery = _searchController.text.toLowerCase();
+        _filteredInvoices = _applyFilters();
+        _displayedCount = 50;
+      });
     });
   }
 
-  void _filterInvoices() {
-    _filteredInvoices = List.from(_invoices);
+  /// Méthode PURE : calcule la liste filtrée et triée sans toucher à l'état ni
+  /// appeler setState. Chaque action n'a plus qu'un seul setState.
+  List<Invoice> _applyFilters() {
+    var result = List<Invoice>.from(_invoices);
 
     // Filtres de statut
     final hasActiveStatusFilter = _filterEnCours || _filterEnLivraison || _filterLivree || _filterArchivee;
     if (hasActiveStatusFilter) {
-      _filteredInvoices = _filteredInvoices.where((invoice) {
+      result = result.where((invoice) {
         if (_filterEnCours && invoice.status == InvoiceStatus.enCours) return true;
         if (_filterEnLivraison && invoice.status == InvoiceStatus.enLivraison) return true;
         if (_filterLivree && invoice.status == InvoiceStatus.livree) return true;
@@ -112,19 +125,20 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     }
 
     // Filtre par période de dates
-    if (_filterDateRange != null) {
+    final dateRange = _filterDateRange;
+    if (dateRange != null) {
       final start = DateTime(
-        _filterDateRange!.start.year,
-        _filterDateRange!.start.month,
-        _filterDateRange!.start.day,
+        dateRange.start.year,
+        dateRange.start.month,
+        dateRange.start.day,
       );
       final end = DateTime(
-        _filterDateRange!.end.year,
-        _filterDateRange!.end.month,
-        _filterDateRange!.end.day,
+        dateRange.end.year,
+        dateRange.end.month,
+        dateRange.end.day,
         23, 59, 59,
       );
-      _filteredInvoices = _filteredInvoices.where((invoice) {
+      result = result.where((invoice) {
         final d = invoice.createdAt;
         return !d.isBefore(start) && !d.isAfter(end);
       }).toList();
@@ -132,40 +146,40 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
 
     // Recherche étendue (client, articles, notes, numéro)
     if (_searchQuery.isNotEmpty) {
-      _filteredInvoices = _filteredInvoices.where((invoice) {
+      result = result.where((invoice) {
         if (invoice.clientName.toLowerCase().contains(_searchQuery)) return true;
         if (invoice.id.toLowerCase().contains(_searchQuery)) return true;
         if (invoice.notes != null && invoice.notes!.toLowerCase().contains(_searchQuery)) return true;
-        for (var item in invoice.items) {
+        for (final item in invoice.items) {
           if (item.name.toLowerCase().contains(_searchQuery)) return true;
         }
         return false;
       }).toList();
     }
 
-    _sortInvoices();
-    setState(() {});
+    _sortRows(result);
+    return result;
   }
 
-  void _sortInvoices() {
+  void _sortRows(List<Invoice> rows) {
     switch (_currentSort) {
       case SortOption.dateDesc:
-        _filteredInvoices.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        rows.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         break;
       case SortOption.dateAsc:
-        _filteredInvoices.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        rows.sort((a, b) => a.createdAt.compareTo(b.createdAt));
         break;
       case SortOption.totalDesc:
-        _filteredInvoices.sort((a, b) => b.total.compareTo(a.total));
+        rows.sort((a, b) => b.total.compareTo(a.total));
         break;
       case SortOption.totalAsc:
-        _filteredInvoices.sort((a, b) => a.total.compareTo(b.total));
+        rows.sort((a, b) => a.total.compareTo(b.total));
         break;
       case SortOption.clientAsc:
-        _filteredInvoices.sort((a, b) => a.clientName.compareTo(b.clientName));
+        rows.sort((a, b) => a.clientName.compareTo(b.clientName));
         break;
       case SortOption.statusAsc:
-        _filteredInvoices.sort((a, b) => a.status.index.compareTo(b.status.index));
+        rows.sort((a, b) => a.status.index.compareTo(b.status.index));
         break;
     }
   }
@@ -178,31 +192,22 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     await _repository.load();
     if (!mounted) return;
     setState(() {
-      _syncFromRepository();
+      _invoices = List<Invoice>.from(_repository.invoices);
+      _filteredInvoices = _applyFilters();
       _isLoading = false;
       _loadingError = _repository.hasLoadError;
     });
   }
 
-  /// Recopie l'état du repository dans les listes locales (filtres / tri).
-  void _syncFromRepository() {
-    _invoices = List<Invoice>.from(_repository.invoices);
-    _filterInvoices();
-  }
-
+  /// La liste suit le repository : aucune clé globale de rafraîchissement.
   void _onRepositoryChanged() {
     if (!mounted) return;
     setState(() {
-      _syncFromRepository();
+      _invoices = List<Invoice>.from(_repository.invoices);
+      _filteredInvoices = _applyFilters();
       _isLoading = false;
       _loadingError = _repository.hasLoadError;
     });
-  }
-
-  /// API publique conservée pour les appelants existants.
-  void refreshData() {
-    if (!mounted) return;
-    setState(_syncFromRepository);
   }
 
   String _formatDate(DateTime date) => DateFormat('dd/MM/yyyy à HH:mm', 'fr_FR').format(date);
@@ -356,7 +361,8 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
       _filterEnLivraison = false;
       _filterLivree = false;
       _filterArchivee = false;
-      _filterInvoices();
+      _filteredInvoices = _applyFilters();
+      _displayedCount = 50;
     });
   }
 
@@ -374,7 +380,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     if (picked == null || !mounted) return;
     setState(() {
       _filterDateRange = picked;
-      _filterInvoices();
+      _filteredInvoices = _applyFilters();
       _displayedCount = 50;
     });
   }
@@ -382,7 +388,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   void _clearDateFilter() {
     setState(() {
       _filterDateRange = null;
-      _filterInvoices();
+      _filteredInvoices = _applyFilters();
       _displayedCount = 50;
     });
   }
@@ -434,7 +440,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                   onSelected: (SortOption option) {
                     setState(() {
                       _currentSort = option;
-                      _sortInvoices();
+                      _filteredInvoices = _applyFilters();
                       _displayedCount = 50;
                     });
                   },
@@ -585,7 +591,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                   label: const Text('En cours'),
                                   selected: _filterEnCours,
                                   onSelected: (v) {
-                                    setState(() { _filterEnCours = v; _filterInvoices(); _displayedCount = 50; });
+                                    setState(() { _filterEnCours = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
                                   selectedColor: Color(InvoiceStatus.enCours.color).withValues(alpha: 0.2),
@@ -596,7 +602,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                   label: const Text('En livraison'),
                                   selected: _filterEnLivraison,
                                   onSelected: (v) {
-                                    setState(() { _filterEnLivraison = v; _filterInvoices(); _displayedCount = 50; });
+                                    setState(() { _filterEnLivraison = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
                                   selectedColor: Color(InvoiceStatus.enLivraison.color).withValues(alpha: 0.2),
@@ -607,7 +613,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                   label: const Text('Livrée'),
                                   selected: _filterLivree,
                                   onSelected: (v) {
-                                    setState(() { _filterLivree = v; _filterInvoices(); _displayedCount = 50; });
+                                    setState(() { _filterLivree = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
                                   selectedColor: Color(InvoiceStatus.livree.color).withValues(alpha: 0.2),
@@ -618,7 +624,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
                                   label: const Text('Archivée'),
                                   selected: _filterArchivee,
                                   onSelected: (v) {
-                                    setState(() { _filterArchivee = v; _filterInvoices(); _displayedCount = 50; });
+                                    setState(() { _filterArchivee = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
                                   },
                                   backgroundColor: const Color(0xFFF1F5F9),
                                   selectedColor: Color(InvoiceStatus.archivee.color).withValues(alpha: 0.2),

@@ -23,7 +23,7 @@ Invoice _invoice(String id, {String clientName = 'Client A'}) => Invoice(
       id: id,
       clientName: clientName,
       createdAt: DateTime(2026, 8, 15),
-      items: const [InvoiceItem(name: 'Article 1', quantity: 3, unitPrice: 100)],
+      items: [InvoiceItem(name: 'Article 1', quantity: 3, unitPrice: 100)],
     );
 
 void main() {
@@ -42,7 +42,7 @@ void main() {
       id: '1234567890',
       clientName: 'Dupont; & Fils',
       createdAt: DateTime(2026, 8, 15, 10, 30),
-      items: const [
+      items: [
         InvoiceItem(name: 'Riz "parfumé"', quantity: 5, unitPrice: 1500),
         InvoiceItem(name: 'Huile', quantity: 2, unitPrice: 2501),
       ],
@@ -83,7 +83,7 @@ void main() {
       id: '1234567890',
       clientName: 'Client',
       createdAt: DateTime(2026, 8, 15, 10, 30),
-      items: const [
+      items: [
         InvoiceItem(name: 'A', quantity: 1, unitPrice: 10000),
         InvoiceItem(name: 'B', quantity: 2, unitPrice: 2500),
       ],

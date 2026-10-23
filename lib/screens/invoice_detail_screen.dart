@@ -23,8 +23,66 @@ class InvoiceDetailScreen extends StatefulWidget {
   State<InvoiceDetailScreen> createState() => _InvoiceDetailScreenState();
 }
 
+/// Brouillon de saisie d'une ligne : les textes bruts sont conservés pour que
+/// le total se mette à jour à chaque frappe et pour que la validation se fasse
+/// au moment d'enregistrer.
+class _ItemDraft {
+  final String id;
+  final String name;
+  final String quantity;
+  final String unitPrice;
+
+  const _ItemDraft({
+    required this.id,
+    required this.name,
+    required this.quantity,
+    required this.unitPrice,
+  });
+
+  factory _ItemDraft.fromItem(InvoiceItem item) => _ItemDraft(
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity.toString(),
+        unitPrice: item.unitPrice.toString(),
+      );
+
+  _ItemDraft copyWith({String? name, String? quantity, String? unitPrice}) =>
+      _ItemDraft(
+        id: id,
+        name: name ?? this.name,
+        quantity: quantity ?? this.quantity,
+        unitPrice: unitPrice ?? this.unitPrice,
+      );
+
+  String get trimmedName => name.trim();
+
+  int get quantityValue => int.tryParse(quantity.trim()) ?? 0;
+
+  int get unitPriceValue => int.tryParse(unitPrice.trim()) ?? 0;
+
+  bool get isValidName => trimmedName.isNotEmpty;
+
+  bool get isValidQuantity => quantityValue > 0;
+
+  bool get isValidPrice => unitPriceValue > 0;
+
+  bool get hasError => !isValidName || !isValidQuantity || !isValidPrice;
+
+  InvoiceItem toItem() => InvoiceItem(
+        id: id,
+        name: trimmedName,
+        quantity: quantityValue,
+        unitPrice: unitPriceValue,
+      );
+}
+
 class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   late Invoice _invoice;
+
+  /// Instantané de la facture enregistrée à l'entrée en édition : « Annuler »
+  /// restaure exactement cet état.
+  late Invoice _original;
+
   bool _isEditing = false;
   bool _isSaving = false;
   bool _isSharing = false;
@@ -35,6 +93,13 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   final InvoiceRepository _repository = InvoiceRepository();
   final ClientPriceIndex _priceIndex = ClientPriceIndex();
   final PdfService _pdfService = PdfService();
+
+  // Brouillons de l'édition : les valeurs saisies y remontent à chaque frappe,
+  // sans toucher à la facture enregistrée.
+  late InvoiceStatus _draftStatus;
+  List<_ItemDraft> _draftItems = [];
+  bool _showItemErrors = false;
+  final Map<String, GlobalKey> _itemKeys = {};
 
   // Ajout d'articles en mode édition (via la bibliothèque produits)
   bool _isAddingItem = false;
@@ -52,6 +117,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   void initState() {
     super.initState();
     _invoice = widget.invoice;
+    _original = widget.invoice;
+    _draftStatus = _invoice.status;
     _clientNameController = TextEditingController(text: _invoice.clientName);
     _notesController = TextEditingController(text: _invoice.notes ?? '');
     _discountController =
@@ -90,50 +157,80 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
   String _formatDate(DateTime date) => DateFormat('EEEE dd MMMM yyyy à HH:mm', 'fr_FR').format(date);
 
+  /// Valeur affichée dans un champ montant (FCFA entier, vide si 0).
+  String _amountInputValue(int value) => value == 0 ? '' : value.toString();
+
+  /// Valeur affichée dans le champ TVA (pourcentage entier, vide si 0).
+  String _taxRateInputValue(double value) =>
+      value == 0 ? '' : value.round().toString();
+
+  int _parseAmount(String text) => int.tryParse(text.trim()) ?? 0;
+
+  // ---------- Édition / annulation ----------
+
   void _toggleEdit() {
     setState(() {
-      _isEditing = !_isEditing;
-      if (!_isEditing) {
-        _clientNameController.text = _invoice.clientName;
-        _notesController.text = _invoice.notes ?? '';
-        _discountController.text = _amountInputValue(_invoice.discount);
-        _taxRateController.text = _taxRateInputValue(_invoice.taxRate);
-        _discountError = null;
-        _taxRateError = null;
-        _quantityError = null;
-        _priceError = null;
-        _isAddingItem = false;
-        _selectedProduct = null;
-        _quantityController.clear();
-        _priceController.clear();
+      if (_isEditing) {
+        _restoreOriginal();
+        _isEditing = false;
+      } else {
+        _original = _invoice;
+        _prepareDraftsFrom(_invoice);
+        _isEditing = true;
       }
+      _discountError = null;
+      _taxRateError = null;
+      _quantityError = null;
+      _priceError = null;
+      _showItemErrors = false;
+      _isAddingItem = false;
+      _selectedProduct = null;
+      _quantityController.clear();
+      _priceController.clear();
     });
   }
 
-  void _updateItem(int index, InvoiceItem newItem) {
-    final newItems = List<InvoiceItem>.from(_invoice.items);
-    newItems[index] = newItem;
-    setState(() {
-      _invoice = _invoice.copyWith(items: newItems);
-    });
+  void _prepareDraftsFrom(Invoice source) {
+    _draftStatus = source.status;
+    _draftItems = source.items.map(_ItemDraft.fromItem).toList();
+    _itemKeys.clear();
+    for (final draft in _draftItems) {
+      _itemKeys[draft.id] = GlobalKey();
+    }
   }
 
-  void _deleteItem(int index) {
+  /// « Annuler » : restaure TOUT (client, notes, remise, TVA, statut, articles).
+  void _restoreOriginal() {
+    _clientNameController.text = _original.clientName;
+    _notesController.text = _original.notes ?? '';
+    _discountController.text = _amountInputValue(_original.discount);
+    _taxRateController.text = _taxRateInputValue(_original.taxRate);
+    _prepareDraftsFrom(_original);
+  }
+
+  void _updateDraft(_ItemDraft updated) {
+    final index = _draftItems.indexWhere((draft) => draft.id == updated.id);
+    if (index == -1) return;
+    setState(() => _draftItems[index] = updated);
+  }
+
+  void _deleteDraftItem(_ItemDraft draft) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius)),
         title: const Text('Confirmer la suppression'),
-        content: Text('Supprimer "${_invoice.items[index].name}" ?'),
+        content: Text('Supprimer "${draft.name.trim()}" ?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
           TextButton(
             onPressed: () {
-              final newItems = List<InvoiceItem>.from(_invoice.items)..removeAt(index);
+              Navigator.pop(dialogContext);
+              if (!mounted) return;
               setState(() {
-                _invoice = _invoice.copyWith(items: newItems);
+                _draftItems.removeWhere((candidate) => candidate.id == draft.id);
+                _itemKeys.remove(draft.id);
               });
-              Navigator.pop(context);
             },
             child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
           ),
@@ -141,6 +238,26 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       ),
     );
   }
+
+  // ---------- Total en direct ----------
+
+  /// Facture construite à partir des brouillons (édition) ou de la facture
+  /// enregistrée : le total affiché suit toujours l'état courant.
+  Invoice get _displayInvoice {
+    if (!_isEditing) return _invoice;
+    return Invoice(
+      id: _invoice.id,
+      clientName: _clientNameController.text.trim(),
+      createdAt: _invoice.createdAt,
+      items: _draftItems.map((draft) => draft.toItem()).toList(),
+      status: _draftStatus,
+      notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      discount: _parseAmount(_discountController.text),
+      taxRate: (int.tryParse(_taxRateController.text.trim()) ?? 0).toDouble(),
+    );
+  }
+
+  // ---------- Ajout d'article ----------
 
   void _openProductGrid() {
     showModalBottomSheet(
@@ -167,13 +284,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       }
     });
   }
-
-  /// Valeur affichée dans un champ montant (FCFA entier, vide si 0).
-  String _amountInputValue(int value) => value == 0 ? '' : value.toString();
-
-  /// Valeur affichée dans le champ TVA (pourcentage entier, vide si 0).
-  String _taxRateInputValue(double value) =>
-      value == 0 ? '' : value.round().toString();
 
   void _addNewItem() {
     final quantity = int.tryParse(_quantityController.text.trim());
@@ -202,14 +312,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     // Saisie invalide : le panneau reste ouvert et l'article n'est pas ajouté.
     if (_quantityError != null || _priceError != null) return;
 
-    final newItems = List<InvoiceItem>.from(_invoice.items)
-      ..add(InvoiceItem(
-        name: _selectedProduct!.name,
-        quantity: quantity!,
-        unitPrice: price!,
-      ));
+    final item = InvoiceItem(
+      name: _selectedProduct!.name,
+      quantity: quantity!,
+      unitPrice: price!,
+    );
     setState(() {
-      _invoice = _invoice.copyWith(items: newItems);
+      _draftItems.add(_ItemDraft.fromItem(item));
+      _itemKeys[item.id] = GlobalKey();
       _isAddingItem = false;
       _selectedProduct = null;
       _quantityController.clear();
@@ -220,6 +330,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 
   Widget _buildAddItemPanel() {
+    final selectedProduct = _selectedProduct;
+    final lastSale = selectedProduct == null ? null : _lastSaleFor(selectedProduct);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -272,10 +384,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      _selectedProduct?.name ?? 'Appuyez pour choisir un produit',
+                      selectedProduct?.name ?? 'Appuyez pour choisir un produit',
                       style: TextStyle(
                         fontSize: 15,
-                        color: _selectedProduct != null ? Colors.black : Colors.grey[600],
+                        color: selectedProduct != null ? Colors.black : Colors.grey[600],
                       ),
                     ),
                   ),
@@ -327,10 +439,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
             ],
           ),
           LastPriceHint(
-            lastPrice: _selectedProduct == null
-                ? null
-                : _lastSaleFor(_selectedProduct!)?.price,
+            lastPrice: lastSale?.price,
+            lastDate: lastSale?.date,
             clientName: _clientNameController.text,
+            onUsePrice: lastSale == null
+                ? null
+                : () => setState(() {
+                      _priceController.text = lastSale.price.toString();
+                    }),
           ),
           const SizedBox(height: 14),
           ElevatedButton.icon(
@@ -344,23 +460,66 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     );
   }
 
+  // ---------- Enregistrement ----------
+
+  void _scrollToFirstItemError() {
+    _ItemDraft? firstError;
+    for (final draft in _draftItems) {
+      if (draft.hasError) {
+        firstError = draft;
+        break;
+      }
+    }
+    if (firstError == null) return;
+    final draftId = firstError.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _itemKeys[draftId]?.currentContext;
+      if (target == null) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.1,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
   Future<void> _saveChanges() async {
     // Remise et TVA sont saisies en entiers (FCFA / pourcentage).
-    final discount = int.tryParse(_discountController.text.trim()) ?? 0;
+    final discount = _parseAmount(_discountController.text);
     final taxRate = int.tryParse(_taxRateController.text.trim()) ?? 0;
-    final subtotal = _invoice.subtotal;
+    final subtotal = _draftItems.fold<int>(
+      0,
+      (sum, draft) => sum + draft.quantityValue * draft.unitPriceValue,
+    );
+
+    if (_draftItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ajoutez au moins un article avant d\'enregistrer'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     final discountError = discount > subtotal
         ? 'Remise limitée au sous-total (${formatCurrency(subtotal)})'
         : null;
     final taxRateError =
         taxRate > 100 ? 'La TVA doit être comprise entre 0 et 100' : null;
-    if (discountError != null || taxRateError != null) {
+    final hasItemError = _draftItems.any((draft) => draft.hasError);
+
+    if (hasItemError || discountError != null || taxRateError != null) {
       // Saisie invalide : on reste en édition et on n'enregistre rien.
       setState(() {
+        _showItemErrors = true;
         _discountError = discountError;
         _taxRateError = taxRateError;
       });
+      if (hasItemError) _scrollToFirstItemError();
       return;
     }
 
@@ -377,8 +536,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
           ? 'Client inconnu'
           : _clientNameController.text.trim(),
       createdAt: _invoice.createdAt,
-      items: _invoice.items.toList(),
-      status: _invoice.status,
+      items: _draftItems.map((draft) => draft.toItem()).toList(),
+      status: _draftStatus,
       notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       discount: discount,
       taxRate: taxRate.toDouble(),
@@ -389,8 +548,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
     setState(() {
       _invoice = updatedInvoice;
+      _original = updatedInvoice;
       _isEditing = false;
       _isSaving = false;
+      _showItemErrors = false;
     });
 
     widget.onInvoiceUpdated();
@@ -422,12 +583,21 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     Navigator.pop(context);
   }
 
-  void _toggleArchive() async {
-    final newStatus = _invoice.status == InvoiceStatus.archivee ? InvoiceStatus.enCours : InvoiceStatus.archivee;
+  /// L'archivage ne persiste QUE le statut de la facture enregistrée : les
+  /// modifications d'édition non sauvegardées ne partent jamais avec lui.
+  Future<void> _toggleArchive() async {
+    final newStatus = _invoice.status == InvoiceStatus.archivee
+        ? InvoiceStatus.enCours
+        : InvoiceStatus.archivee;
+    final updated = _invoice.copyWith(status: newStatus);
+    await _repository.update(updated);
+    if (!mounted) return;
     setState(() {
-      _invoice = _invoice.copyWith(status: newStatus);
+      _invoice = updated;
+      _original = updated;
+      _draftStatus = newStatus;
     });
-    await _saveChanges(); // save immédiatement
+    widget.onInvoiceUpdated();
   }
 
   void _duplicateInvoice() {
@@ -528,6 +698,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final display = _displayInvoice;
+    final isArchived = _invoice.status == InvoiceStatus.archivee;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -538,7 +710,12 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
         shape: const Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
         actions: _isEditing
             ? [
-                IconButton(icon: const Icon(Icons.cancel), onPressed: _toggleEdit, tooltip: 'Annuler'),
+                IconButton(
+                  icon: Icon(isArchived ? Icons.unarchive : Icons.archive),
+                  onPressed: _isSaving ? null : _toggleArchive,
+                  tooltip: isArchived ? 'Désarchiver' : 'Archiver',
+                ),
+                IconButton(icon: const Icon(Icons.cancel), onPressed: _isSaving ? null : _toggleEdit, tooltip: 'Annuler'),
                 IconButton(
                   icon: _isSaving ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
                   onPressed: _isSaving ? null : _saveChanges,
@@ -546,7 +723,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                 ),
               ]
             : [
-                IconButton(icon: Icon(_invoice.status == InvoiceStatus.archivee ? Icons.unarchive : Icons.archive), onPressed: _toggleArchive, tooltip: _invoice.status == InvoiceStatus.archivee ? 'Désarchiver' : 'Archiver'),
+                IconButton(icon: Icon(isArchived ? Icons.unarchive : Icons.archive), onPressed: _toggleArchive, tooltip: isArchived ? 'Désarchiver' : 'Archiver'),
                 IconButton(icon: const Icon(Icons.content_copy), onPressed: _duplicateInvoice, tooltip: 'Dupliquer'),
                 IconButton(icon: const Icon(Icons.edit), onPressed: _toggleEdit, tooltip: 'Modifier'),
                 IconButton(icon: const Icon(Icons.delete), onPressed: _deleteInvoice, tooltip: 'Supprimer', color: Colors.red),
@@ -603,7 +780,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                   const SizedBox(height: 12),
                   _isEditing
                       ? DropdownButton<InvoiceStatus>(
-                          value: _invoice.status,
+                          value: _draftStatus,
                           isExpanded: true,
                           items: InvoiceStatus.values.map((s) {
                             return DropdownMenuItem(
@@ -616,7 +793,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             );
                           }).toList(),
                           onChanged: (v) {
-                            if (v != null) setState(() => _invoice = _invoice.copyWith(status: v));
+                            if (v != null) setState(() => _draftStatus = v);
                           },
                           underline: Container(),
                         )
@@ -641,11 +818,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             controller: _discountController,
                             keyboardType: TextInputType.number,
                             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            onChanged: (_) {
-                              if (_discountError != null) {
-                                setState(() => _discountError = null);
-                              }
-                            },
+                            onChanged: (_) => setState(() {
+                              // Le total se met à jour en direct.
+                              _discountError = null;
+                            }),
                             decoration: InputDecoration(labelText: 'Remise (FCFA)', errorText: _discountError, prefixIcon: const Icon(Icons.percent, color: Color(0xFF2563EB)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, fillColor: const Color(0xFFF1F5F9)),
                           ),
                         ),
@@ -655,11 +831,9 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             controller: _taxRateController,
                             keyboardType: TextInputType.number,
                             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            onChanged: (_) {
-                              if (_taxRateError != null) {
-                                setState(() => _taxRateError = null);
-                              }
-                            },
+                            onChanged: (_) => setState(() {
+                              _taxRateError = null;
+                            }),
                             decoration: InputDecoration(labelText: 'TVA (%)', errorText: _taxRateError, prefixIcon: const Icon(Icons.receipt, color: Color(0xFF2563EB)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, fillColor: const Color(0xFFF1F5F9)),
                           ),
                         ),
@@ -694,34 +868,54 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                     children: [
                       const Text('Articles', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                       const SizedBox(width: 8),
-                      Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: const Color(0xFFDBEAFE), borderRadius: BorderRadius.circular(10)), child: Text('${_invoice.items.length}', style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 13))),
+                      Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: const Color(0xFFDBEAFE), borderRadius: BorderRadius.circular(10)), child: Text('${_isEditing ? _draftItems.length : _invoice.items.length}', style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 13))),
                       const SizedBox(width: 6),
                       Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(10)), child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(Icons.inventory_2, size: 12, color: Color(0xFFD97706)),
                           const SizedBox(width: 3),
-                          Text('${_invoice.totalQuantity} unités', style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 12)),
+                          Text('${display.totalQuantity} unités', style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 12)),
                         ],
                       )),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  ..._invoice.items.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final item = entry.value;
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius), side: BorderSide(color: Colors.grey.withAlpha(30))),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: _isEditing
-                            ? _EditableItemTile(index: index, item: item, onUpdate: (u) => _updateItem(index, u), onDelete: () => _deleteItem(index))
-                            : _CompactItemView(index: index, item: item),
-                      ),
-                    );
-                  }),
+                  if (_isEditing)
+                    ..._draftItems.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final draft = entry.value;
+                      final itemKey = _itemKeys[draft.id] ??= GlobalKey();
+                      return Card(
+                        key: itemKey,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius), side: BorderSide(color: Colors.grey.withAlpha(30))),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: _EditableItemTile(
+                            key: ValueKey(draft.id),
+                            index: index,
+                            draft: draft,
+                            showErrors: _showItemErrors,
+                            onChanged: _updateDraft,
+                            onDelete: () => _deleteDraftItem(draft),
+                          ),
+                        ),
+                      );
+                    })
+                  else
+                    ..._invoice.items.asMap().entries.map((entry) {
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius), side: BorderSide(color: Colors.grey.withAlpha(30))),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: _CompactItemView(index: entry.key, item: entry.value),
+                        ),
+                      );
+                    }),
                   if (_isEditing) ...[
                     const SizedBox(height: 4),
                     if (_isAddingItem)
@@ -747,17 +941,17 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (_invoice.hasBreakdown) ...[
-                                _TotalBreakdownLine('Sous-total', formatCurrency(_invoice.subtotal)),
-                                if (_invoice.discountApplied > 0)
-                                  _TotalBreakdownLine('Remise', '-${formatCurrency(_invoice.discountApplied)}'),
-                                if (_invoice.taxRate > 0)
-                                  _TotalBreakdownLine('TVA ${formatNumber(_invoice.taxRate.round())}%', '+${formatCurrency(_invoice.taxAmount)}'),
+                              if (display.hasBreakdown) ...[
+                                _TotalBreakdownLine('Sous-total', formatCurrency(display.subtotal)),
+                                if (display.discountApplied > 0)
+                                  _TotalBreakdownLine('Remise', '-${formatCurrency(display.discountApplied)}'),
+                                if (display.taxRate > 0)
+                                  _TotalBreakdownLine('TVA ${formatNumber(display.taxRate.round())}%', '+${formatCurrency(display.taxAmount)}'),
                                 const SizedBox(height: 8),
                               ],
                               const Text('TOTAL À PAYER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70, letterSpacing: 1.2)),
                               const SizedBox(height: 6),
-                              Text(formatCurrency(_invoice.payableTotal), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white)),
+                              Text(formatCurrency(display.payableTotal), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white)),
                             ],
                           ),
                         ),
@@ -852,38 +1046,35 @@ class _InfoRow extends StatelessWidget {
 
 class _EditableItemTile extends StatefulWidget {
   final int index;
-  final InvoiceItem item;
-  final Function(InvoiceItem) onUpdate;
+  final _ItemDraft draft;
+  final bool showErrors;
+  final ValueChanged<_ItemDraft> onChanged;
   final VoidCallback onDelete;
-  const _EditableItemTile({required this.index, required this.item, required this.onUpdate, required this.onDelete});
+
+  const _EditableItemTile({
+    super.key,
+    required this.index,
+    required this.draft,
+    required this.showErrors,
+    required this.onChanged,
+    required this.onDelete,
+  });
 
   @override
   State<_EditableItemTile> createState() => _EditableItemTileState();
 }
 
 class _EditableItemTileState extends State<_EditableItemTile> {
-  late TextEditingController _nameController;
-  late TextEditingController _quantityController;
-  late TextEditingController _priceController;
+  late final TextEditingController _nameController;
+  late final TextEditingController _quantityController;
+  late final TextEditingController _priceController;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.item.name);
-    _quantityController = TextEditingController(text: widget.item.quantity.toString());
-    _priceController = TextEditingController(text: widget.item.unitPrice.toString());
-  }
-
-  @override
-  void didUpdateWidget(covariant _EditableItemTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Re-synchronise les champs quand l'article change (ex: suppression multiple
-    // qui décale les index) pour éviter que les valeurs se mélangent.
-    if (!identical(oldWidget.item, widget.item)) {
-      _nameController.text = widget.item.name;
-      _quantityController.text = widget.item.quantity.toString();
-      _priceController.text = widget.item.unitPrice.toString();
-    }
+    _nameController = TextEditingController(text: widget.draft.name);
+    _quantityController = TextEditingController(text: widget.draft.quantity);
+    _priceController = TextEditingController(text: widget.draft.unitPrice);
   }
 
   @override
@@ -894,22 +1085,19 @@ class _EditableItemTileState extends State<_EditableItemTile> {
     super.dispose();
   }
 
-  void _update() {
-    final quantity = int.tryParse(_quantityController.text);
-    final price = int.tryParse(_priceController.text);
-    if (quantity == null || quantity <= 0 || price == null || price <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Valeurs invalides'), backgroundColor: Colors.red));
-      return;
-    }
-    widget.onUpdate(widget.item.copyWith(
-      name: _nameController.text.trim().isEmpty ? 'Sans nom' : _nameController.text.trim(),
-      quantity: quantity,
-      unitPrice: price,
+  /// Remonte la saisie au parent à chaque frappe : le total et les brouillons
+  /// suivent immédiatement, sans bouton de validation par ligne.
+  void _emit() {
+    widget.onChanged(widget.draft.copyWith(
+      name: _nameController.text,
+      quantity: _quantityController.text,
+      unitPrice: _priceController.text,
     ));
   }
 
   @override
   Widget build(BuildContext context) {
+    final showErrors = widget.showErrors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -917,16 +1105,52 @@ class _EditableItemTileState extends State<_EditableItemTile> {
           children: [
             Container(width: 28, height: 28, decoration: const BoxDecoration(color: Color(0xFFDBEAFE), shape: BoxShape.circle), child: Center(child: Text('${widget.index + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2563EB), fontSize: 12)))),
             const SizedBox(width: 10),
-            Expanded(child: TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Nom', border: OutlineInputBorder(), isDense: true))),
+            Expanded(
+              child: TextField(
+                controller: _nameController,
+                onChanged: (_) => _emit(),
+                decoration: InputDecoration(
+                  labelText: 'Nom',
+                  errorText: showErrors && !widget.draft.isValidName ? 'Nom obligatoire' : null,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 10),
         Row(
           children: [
-            Expanded(child: TextField(controller: _quantityController, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'Quantité', border: OutlineInputBorder(), isDense: true))),
+            Expanded(
+              child: TextField(
+                controller: _quantityController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => _emit(),
+                decoration: InputDecoration(
+                  labelText: 'Quantité',
+                  errorText: showErrors && !widget.draft.isValidQuantity ? 'Quantité obligatoire (entier supérieur à 0)' : null,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
             const SizedBox(width: 8),
-            Expanded(child: TextField(controller: _priceController, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'Prix unitaire', border: OutlineInputBorder(), isDense: true))),
-            IconButton(icon: const Icon(Icons.check, color: Colors.green), onPressed: _update, tooltip: 'Valider'),
+            Expanded(
+              child: TextField(
+                controller: _priceController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => _emit(),
+                decoration: InputDecoration(
+                  labelText: 'Prix unitaire',
+                  errorText: showErrors && !widget.draft.isValidPrice ? 'Prix obligatoire (entier supérieur à 0)' : null,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
             IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: widget.onDelete, tooltip: 'Supprimer'),
           ],
         ),

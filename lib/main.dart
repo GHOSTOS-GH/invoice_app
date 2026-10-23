@@ -287,7 +287,7 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: screens),
+      body: LazyIndexedStack(index: _currentIndex, children: screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) => setState(() => _currentIndex = index),
@@ -315,6 +315,72 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// IndexedStack paresseux : un onglet n'est construit qu'à sa première visite,
+/// puis reste vivant (Offstage + TickerMode) comme avec un IndexedStack.
+class LazyIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+
+  const LazyIndexedStack({
+    super.key,
+    required this.index,
+    required this.children,
+  });
+
+  @override
+  State<LazyIndexedStack> createState() => _LazyIndexedStackState();
+}
+
+class _LazyIndexedStackState extends State<LazyIndexedStack> {
+  /// Un booléen par onglet : vrai dès qu'il a été construit une première fois.
+  late List<bool> _built;
+
+  @override
+  void initState() {
+    super.initState();
+    _built = List<bool>.filled(widget.children.length, false);
+    _markBuilt(widget.index);
+  }
+
+  @override
+  void didUpdateWidget(covariant LazyIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.children.length != widget.children.length) {
+      final previous = _built;
+      _built = List<bool>.filled(widget.children.length, false);
+      for (var i = 0; i < previous.length && i < _built.length; i++) {
+        _built[i] = previous[i];
+      }
+    }
+    _markBuilt(widget.index);
+  }
+
+  void _markBuilt(int index) {
+    if (index >= 0 && index < _built.length) _built[index] = true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.children.isEmpty) return const SizedBox.shrink();
+    final index = widget.index.clamp(0, widget.children.length - 1);
+    _markBuilt(index);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (var i = 0; i < widget.children.length; i++)
+          if (_built[i])
+            Offstage(
+              offstage: i != index,
+              child: TickerMode(
+                enabled: i == index,
+                child: widget.children[i],
+              ),
+            ),
+      ],
     );
   }
 }

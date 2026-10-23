@@ -11,6 +11,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:invoice_app/main.dart';
+import 'package:invoice_app/models/invoice.dart';
 import 'package:invoice_app/services/history_service.dart';
 import 'package:invoice_app/services/invoice_repository.dart';
 import 'package:invoice_app/services/product_image_store.dart';
@@ -64,6 +65,22 @@ void main() {
     expect(invoice.discount, 11);
     expect(invoice.taxAmount, 304);
     expect(invoice.payableTotal, 1993);
+
+    // Les anciens articles sans id en reçoivent un, distinct et conservé.
+    expect(invoice.items.first.id, isNotEmpty);
+    expect(invoice.items.first.id, isNot(invoice.items.last.id));
+    expect(invoice.items.first.toJson()['id'], invoice.items.first.id);
+    expect(
+      invoice.items.first.copyWith(quantity: 5).id,
+      invoice.items.first.id,
+    );
+
+    // Un id déjà présent est relu tel quel (pas de régénération).
+    const withId = '{"id": "item-42", "name": "Riz", "quantity": 1, "unitPrice": 100}';
+    final reread = InvoiceItem.fromJson(
+      jsonDecode(withId) as Map<String, dynamic>,
+    );
+    expect(reread.id, 'item-42');
 
     // Les anciens JSON restent lisibles par l'API historique.
     final raw = jsonDecode(legacyInvoices) as List;

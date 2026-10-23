@@ -2,6 +2,7 @@
 // Petit encart contextuel affichant le dernier prix d'un produit vendu à un client.
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../utils/formatters.dart';
 
 class LastPriceHint extends StatelessWidget {
@@ -11,7 +12,20 @@ class LastPriceHint extends StatelessWidget {
   /// Nom du client concerné (null ou vide = libellé générique).
   final String? clientName;
 
-  const LastPriceHint({super.key, this.lastPrice, this.clientName});
+  /// Date de la vente d'origine (affiche « le 12/10/2026 » quand elle est
+  /// connue).
+  final DateTime? lastDate;
+
+  /// Applique le dernier prix au champ de saisie (bouton « Utiliser ce prix »).
+  final VoidCallback? onUsePrice;
+
+  const LastPriceHint({
+    super.key,
+    this.lastPrice,
+    this.clientName,
+    this.lastDate,
+    this.onUsePrice,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -22,6 +36,7 @@ class LastPriceHint extends StatelessWidget {
     final label = client.isEmpty
         ? 'Dernier prix connu : ${formatCurrency(price)}'
         : 'Dernier prix pour $client : ${formatCurrency(price)}';
+    final date = lastDate;
 
     return Container(
       margin: const EdgeInsets.only(top: 10),
@@ -36,15 +51,42 @@ class LastPriceHint extends StatelessWidget {
           const Icon(Icons.history, size: 17, color: Color(0xFF2563EB)),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1D4ED8),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1D4ED8),
+                  ),
+                ),
+                if (date != null)
+                  Text(
+                    'le ${DateFormat('dd/MM/yyyy', 'fr_FR').format(date)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF3B82F6),
+                    ),
+                  ),
+              ],
             ),
           ),
+          if (onUsePrice != null) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: onUsePrice,
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              child: const Text(
+                'Utiliser ce prix',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
         ],
       ),
     );

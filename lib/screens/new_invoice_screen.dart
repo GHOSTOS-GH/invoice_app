@@ -32,13 +32,16 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
   bool _isAddingItem = false;
   Product? _selectedProduct;
   bool _isLoading = false;
-  List<String> _clientSuggestions = [];
-  bool _showClientSuggestions = false;
   final FocusNode _clientFocusNode = FocusNode();
 
-  // Dernier prix par produit (clé normalisée) pour le client saisi.
-  Map<String, int> _clientPrices = {};
-  String _lastPriceClient = '';
+  // Dernier prix : le prix n'est pré-rempli que tant que l'utilisateur ne l'a
+  // pas modifié à la main. Le drapeau est remis à false quand le produit change.
+  bool _priceTouched = false;
+
+  // Nom appliqué par une suggestion : tant que le champ garde ce texte, la
+  // liste de suggestions reste fermée (elle ne se rouvre pas au focus).
+  String? _lastAppliedClientName;
+  bool _clientOptionsSuppressed = false;
 
   // Erreurs de saisie affichées sous les champs (le panneau reste ouvert).
   String? _quantityError;
@@ -50,11 +53,6 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
     WidgetsBinding.instance.addObserver(this);
     _clientNameController.addListener(_onClientNameChanged);
     _loadInitialData();
-    _clientFocusNode.addListener(() {
-      if (!_clientFocusNode.hasFocus) {
-        setState(() => _showClientSuggestions = false);
-      }
-    });
   }
 
   Future<void> _loadInitialData() async {
@@ -65,7 +63,11 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
       final draft = await _storageService.loadDraft();
       if (!mounted) return;
       if (draft != null) {
-        _clientNameController.text = draft.clientName;
+        // Un brouillon peut avoir un client vide : ne remplace pas le champ
+        // par une chaîne vide inutile.
+        if (draft.clientName.trim().isNotEmpty) {
+          _clientNameController.text = draft.clientName;
+        }
         _items.addAll(draft.items);
       }
     }
@@ -85,12 +87,14 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // Sauvegarde avant de libérer les contrôleurs : _saveDraft lit encore
+    // le nom du client.
+    _saveDraft();
     _clientNameController.removeListener(_onClientNameChanged);
     _clientNameController.dispose();
     _quantityController.dispose();
     _priceController.dispose();
     _clientFocusNode.dispose();
-    _saveDraft();
     super.dispose();
   }
 
@@ -99,42 +103,114 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
       await _storageService.clearDraft();
       return;
     }
+    // Le nom vide est autorisé dans le brouillon : « Client inconnu » ne doit
+    // pas être stocké à la place d'un champ resté vide.
     final draft = Invoice(
       id: 'draft',
-      clientName: _clientNameController.text.trim().isEmpty
-          ? 'Client inconnu'
-          : _clientNameController.text.trim(),
+      clientName: _clientNameController.text.trim(),
       createdAt: DateTime.now(),
       items: List.from(_items),
     );
     await _storageService.saveDraft(draft);
   }
 
-  void _onClientNameChanged() async {
-    final clientText = _clientNameController.text;
-    if (clientText.isEmpty) {
-      setState(() {
-        _showClientSuggestions = false;
-        _clientPrices = {};
-        _lastPriceClient = '';
-      });
-      return;
+  // ---------- Client / dernier prix ----------
+
+  /// Nom du client connu correspondant exactement au texte saisi (null tant
+  /// que la saisie n'est pas résolue).
+  String? get _resolvedClientName {
+    final query = normalizeKey(_clientNameController.text);
+    if (query.isEmpty) return null;
+    for (final name in ClientPriceIndex().clientNames()) {
+      if (normalizeKey(name) == query) return name;
     }
-    final suggestions = await _historyService.searchClientNames(clientText);
+    return null;
+  }
+
+  /// Dernière vente du produit sélectionné au client résolu (synchrone).
+  LastSale? get _lastSale {
+    final product = _selectedProduct;
+    if (product == null) return null;
+    if (_resolvedClientName == null) return null;
+    return ClientPriceIndex()
+        .lastSale(_clientNameController.text, product.name);
+  }
+
+  /// Pré-remplit (ou vide) le champ prix à partir du dernier prix connu, sauf
+  /// si l'utilisateur a déjà saisi un prix à la main.
+  void _syncPriceFromLastSale() {
+    if (_priceTouched) return;
+    final sale = _lastSale;
+    final text = sale == null ? '' : sale.price.toString();
+    if (_priceController.text == text) return;
+    _priceController.text = text;
+  }
+
+  void _onClientNameChanged() {
     if (!mounted) return;
-
-    // L'index est synchrone : la table des derniers prix suit le client saisi.
-    final clientKey = normalizeKey(clientText);
-    if (clientKey != _lastPriceClient) {
-      _clientPrices = ClientPriceIndex().pricesForClient(clientText);
-      _lastPriceClient = clientKey;
-    }
-
+    final text = _clientNameController.text;
     setState(() {
-      _clientSuggestions = suggestions;
-      _showClientSuggestions = suggestions.isNotEmpty && _clientFocusNode.hasFocus;
+      if (_lastAppliedClientName != null &&
+          text.trim() != _lastAppliedClientName) {
+        // L'utilisateur retape : les suggestions redeviennent disponibles.
+        _lastAppliedClientName = null;
+        _clientOptionsSuppressed = false;
+      }
+      _syncPriceFromLastSale();
     });
   }
+
+  /// Suggestions calculées de façon SYNCHRONE (aucun await, donc aucune course).
+  Iterable<String> _buildClientOptions(TextEditingValue value) {
+    if (_clientOptionsSuppressed) return const <String>[];
+    final query = normalizeKey(value.text);
+    if (query.isEmpty) return const <String>[];
+
+    final names = ClientPriceIndex().clientNames();
+    // Nom déjà complet : plus rien à proposer, la liste reste fermée.
+    if (names.any((name) => normalizeKey(name) == query)) {
+      return const <String>[];
+    }
+
+    final matches = <String>[];
+    for (final name in names) {
+      if (normalizeKey(name).contains(query)) matches.add(name);
+    }
+
+    // Les noms qui commencent par la recherche d'abord ; à égalité, l'ordre de
+    // l'index (du plus récent au plus ancien) est conservé.
+    final ranked = matches.asMap().entries.toList()
+      ..sort((a, b) {
+        final aStarts = normalizeKey(a.value).startsWith(query) ? 0 : 1;
+        final bStarts = normalizeKey(b.value).startsWith(query) ? 0 : 1;
+        if (aStarts != bStarts) return aStarts - bStarts;
+        return a.key - b.key;
+      });
+    return ranked.map((entry) => entry.value).take(6).toList();
+  }
+
+  /// Seul client connu commençant par la saisie courante (quand elle n'est pas
+  /// encore résolue) : affiché en aide discrète sous le champ.
+  String? get _singleStartingClient {
+    final query = normalizeKey(_clientNameController.text);
+    if (query.isEmpty) return null;
+    final names = ClientPriceIndex().clientNames();
+    if (names.any((name) => normalizeKey(name) == query)) return null;
+    final starts = names
+        .where((name) => normalizeKey(name).startsWith(query))
+        .toList();
+    return starts.length == 1 ? starts.single : null;
+  }
+
+  void _applyClientName(String name) {
+    _lastAppliedClientName = name;
+    _clientOptionsSuppressed = true;
+    _clientNameController.text = name;
+    if (!mounted) return;
+    setState(_syncPriceFromLastSale);
+  }
+
+  // ---------- Articles ----------
 
   void _addItem() {
     final quantity = int.tryParse(_quantityController.text.trim());
@@ -177,6 +253,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
       _isAddingItem = false;
       _quantityError = null;
       _priceError = null;
+      _priceTouched = false;
     });
 
     _historyService.saveProductName(productName);
@@ -196,9 +273,35 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
     );
   }
 
-  void _deleteItem(int index) {
+  /// Retrait immédiat + possibilité d'annuler : l'article retrouve alors sa
+  /// position d'origine. Le brouillon est sauvegardé dans les deux cas.
+  void _removeItem(InvoiceItem item) {
+    final index = _items.indexWhere((candidate) => candidate.id == item.id);
+    if (index == -1) return;
+
     setState(() => _items.removeAt(index));
     _saveDraft();
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text('Article supprimé'),
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'ANNULER',
+          onPressed: () {
+            if (!mounted) return;
+            setState(() {
+              final position = index.clamp(0, _items.length);
+              _items.insert(position, item);
+            });
+            _saveDraft();
+          },
+        ),
+      ),
+    );
   }
 
   /// Facture en cours de saisie : le total affiché est toujours son
@@ -249,6 +352,8 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
         _items.clear();
         _isAddingItem = false;
         _isLoading = false;
+        _selectedProduct = null;
+        _priceTouched = false;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -272,6 +377,57 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
     }
   }
 
+  /// Efface le brouillon, en demandant confirmation quand il contient des
+  /// articles.
+  Future<void> _clearDraft() async {
+    if (_items.isNotEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Constants.cardRadius),
+          ),
+          title: const Text('Effacer le brouillon ?'),
+          content: Text(
+            'Le brouillon contient ${_items.length} article'
+            '${_items.length > 1 ? 's' : ''}. Cette action est irréversible.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Effacer', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
+    await _storageService.clearDraft();
+    if (!mounted) return;
+    setState(() {
+      _clientNameController.clear();
+      _items.clear();
+      _isAddingItem = false;
+      _selectedProduct = null;
+      _priceTouched = false;
+      _quantityController.clear();
+      _priceController.clear();
+      _quantityError = null;
+      _priceError = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Brouillon effacé'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   void _openProductGrid() {
     showModalBottomSheet(
       context: context,
@@ -288,13 +444,9 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
       final isSameProduct = _selectedProduct?.id == product.id;
       _selectedProduct = product;
       if (!isSameProduct) {
-        // Pré-remplit le prix avec le dernier prix vendu à ce client
-        final lastPrice = _clientPrices[normalizeKey(product.name)];
-        if (lastPrice != null) {
-          _priceController.text = lastPrice.toString();
-        } else {
-          _priceController.clear();
-        }
+        // Nouveau produit : le pré-remplissage redevient autorisé.
+        _priceTouched = false;
+        _syncPriceFromLastSale();
       }
     });
   }
@@ -313,29 +465,12 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
           IconButton(
             icon: const Icon(Icons.delete_sweep),
             tooltip: 'Effacer le brouillon',
-            onPressed: () async {
-              await _storageService.clearDraft();
-              if (!context.mounted) return;
-              setState(() {
-                _clientNameController.clear();
-                _items.clear();
-                _isAddingItem = false;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Brouillon effacé'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
+            onPressed: _clearDraft,
           ),
         ],
       ),
       body: GestureDetector(
-        onTap: () {
-          FocusScope.of(context).unfocus();
-          setState(() => _showClientSuggestions = false);
-        },
+        onTap: () => FocusScope.of(context).unfocus(),
         child: Column(
           children: [
             Container(
@@ -344,25 +479,9 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(
-                    controller: _clientNameController,
-                    focusNode: _clientFocusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Nom du client (optionnel)',
-                      prefixIcon: Icon(Icons.person, color: Colors.blue[700]),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(Constants.inputRadius)),
-                      filled: true,
-                      fillColor: Colors.grey[50],
-                    ),
-                  ),
-                  if (_showClientSuggestions && _clientSuggestions.isNotEmpty)
-                    _buildSuggestions(
-                      _clientSuggestions,
-                      onSelect: (s) {
-                        _clientNameController.text = s;
-                        setState(() => _showClientSuggestions = false);
-                      },
-                    ),
+                  _buildClientField(),
+                  if (_singleStartingClient != null)
+                    _buildExistingClientLine(_singleStartingClient!),
                 ],
               ),
             ),
@@ -376,7 +495,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
                       itemBuilder: (context, index) {
                         final item = _items[index];
                         return Dismissible(
-                          key: Key('item_$index'),
+                          key: ValueKey(item.id),
                           direction: DismissDirection.endToStart,
                           background: Container(
                             alignment: Alignment.centerRight,
@@ -384,7 +503,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
                             color: Colors.red,
                             child: const Icon(Icons.delete, color: Colors.white),
                           ),
-                          onDismissed: (_) => _deleteItem(index),
+                          onDismissed: (_) => _removeItem(item),
                           child: _buildItemCard(item, index),
                         );
                       },
@@ -404,6 +523,92 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
               backgroundColor: const Color(0xFF2563EB),
             ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+
+  Widget _buildClientField() {
+    return RawAutocomplete<String>(
+      textEditingController: _clientNameController,
+      focusNode: _clientFocusNode,
+      optionsBuilder: _buildClientOptions,
+      displayStringForOption: (option) => option,
+      onSelected: (option) => _applyClientName(option),
+      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          textInputAction: TextInputAction.next,
+          onSubmitted: (_) => onFieldSubmitted(),
+          decoration: InputDecoration(
+            labelText: 'Nom du client (optionnel)',
+            prefixIcon: Icon(Icons.person, color: Colors.blue[700]),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(Constants.inputRadius),
+            ),
+            filled: true,
+            fillColor: Colors.grey[50],
+          ),
+        );
+      },
+      optionsViewBuilder: (context, onSelect, options) {
+        if (_clientOptionsSuppressed) return const SizedBox.shrink();
+        final entries = options.toList();
+        if (entries.isEmpty) return const SizedBox.shrink();
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(14),
+            color: Colors.white,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: 200,
+                maxWidth: MediaQuery.sizeOf(context).width - 32,
+              ),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final name = entries[i];
+                  return ListTile(
+                    key: ValueKey('client-option-$name'),
+                    dense: true,
+                    leading: Icon(Icons.history, size: 16, color: Colors.grey[400]),
+                    title: Text(name, style: const TextStyle(fontSize: 14)),
+                    onTap: () => onSelect(name),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildExistingClientLine(String name) {
+    return InkWell(
+      onTap: () => _applyClientName(name),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8, left: 4, right: 4, bottom: 2),
+        child: Row(
+          children: [
+            Icon(Icons.person_search, size: 15, color: Colors.grey[600]),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Client existant : $name — Utiliser',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey[700]),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -482,6 +687,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
   }
 
   Widget _buildAddItemPanel() {
+    final sale = _lastSale;
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -502,6 +708,7 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
                     _quantityController.clear();
                     _priceController.clear();
                     _selectedProduct = null;
+                    _priceTouched = false;
                   });
                 },
               )
@@ -563,6 +770,8 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   onChanged: (_) {
+                    // Saisie manuelle : le pré-remplissage ne doit plus écraser.
+                    _priceTouched = true;
                     if (_priceError != null) {
                       setState(() => _priceError = null);
                     }
@@ -578,10 +787,17 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
             ],
           ),
           LastPriceHint(
-            lastPrice: _selectedProduct == null
-                ? null
-                : _clientPrices[normalizeKey(_selectedProduct!.name)],
+            lastPrice: sale?.price,
+            lastDate: sale?.date,
             clientName: _clientNameController.text,
+            onUsePrice: sale == null
+                ? null
+                : () {
+                    setState(() {
+                      _priceController.text = sale.price.toString();
+                      _priceTouched = true;
+                    });
+                  },
           ),
           const SizedBox(height: 14),
           ElevatedButton.icon(
@@ -594,39 +810,6 @@ class _NewInvoiceScreenState extends State<NewInvoiceScreen> with WidgetsBinding
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSuggestions(List<String> items, {required void Function(String) onSelect}) {
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey[200]!),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(15),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      constraints: const BoxConstraints(maxHeight: 140),
-      child: ListView.separated(
-        shrinkWrap: true,
-        itemCount: items.length,
-        separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey[100]),
-        itemBuilder: (context, i) {
-          return ListTile(
-            dense: true,
-            leading: Icon(Icons.history, size: 16, color: Colors.grey[400]),
-            title: Text(items[i], style: const TextStyle(fontSize: 14)),
-            onTap: () => onSelect(items[i]),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-          );
-        },
       ),
     );
   }

@@ -1,42 +1,67 @@
 // lib/models/invoice.dart
 import 'dart:collection';
 
+/// Compteur monotone garantissant l'unicité de deux ids générés dans la même
+/// microseconde.
+int _invoiceItemIdSequence = 0;
+
+/// Identifiant stable d'un article : compteur + horodatage en microsecondes.
+/// Il sert de clé d'interface (lignes éditables, suppression par glissement)
+/// et ne participe ni aux calculs ni aux exports.
+String generateInvoiceItemId() {
+  _invoiceItemIdSequence += 1;
+  return '${DateTime.now().microsecondsSinceEpoch}-$_invoiceItemIdSequence';
+}
+
 class InvoiceItem {
+  /// Identifiant stable de l'article. Conservé par [copyWith] et écrit dans le
+  /// JSON ; les anciens articles sans id en reçoivent un au chargement.
+  final String id;
+
   final String name;
   final int quantity;
 
   /// Prix unitaire en FCFA (toujours entier, jamais de décimal).
   final int unitPrice;
 
-  const InvoiceItem({
+  InvoiceItem({
+    String? id,
     required this.name,
     required this.quantity,
     required this.unitPrice,
-  });
+  }) : id = id ?? generateInvoiceItemId();
 
   /// Sous-total de la ligne en FCFA (entier).
   int get subtotal => quantity * unitPrice;
 
   Map<String, dynamic> toJson() => {
+        'id': id,
         'name': name,
         'quantity': quantity,
         'unitPrice': unitPrice,
       };
 
   /// Lit un article, y compris depuis les anciens JSON qui contenaient des
-  /// prix décimaux (99.99 → 100) : le chargement ne doit jamais échouer.
-  factory InvoiceItem.fromJson(Map<String, dynamic> json) => InvoiceItem(
-        name: json['name'] as String,
-        quantity: (json['quantity'] as num?)?.round() ?? 0,
-        unitPrice: (json['unitPrice'] as num?)?.round() ?? 0,
-      );
+  /// prix décimaux (99.99 → 100) ou pas d'id : le chargement ne doit jamais
+  /// échouer.
+  factory InvoiceItem.fromJson(Map<String, dynamic> json) {
+    final rawId = json['id'];
+    return InvoiceItem(
+      id: rawId is String && rawId.trim().isNotEmpty ? rawId : null,
+      name: json['name'] as String,
+      quantity: (json['quantity'] as num?)?.round() ?? 0,
+      unitPrice: (json['unitPrice'] as num?)?.round() ?? 0,
+    );
+  }
 
   InvoiceItem copyWith({
+    String? id,
     String? name,
     int? quantity,
     int? unitPrice,
   }) =>
       InvoiceItem(
+        id: id ?? this.id,
         name: name ?? this.name,
         quantity: quantity ?? this.quantity,
         unitPrice: unitPrice ?? this.unitPrice,

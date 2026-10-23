@@ -18,7 +18,7 @@ void main() {
         id: '20260815123456',
         clientName: 'Client Test',
         createdAt: DateTime(2026, 8, 15, 14, 30),
-        items: const [
+        items: [
           InvoiceItem(name: 'Coca-Cola 1.5L', quantity: 2, unitPrice: 1000),
           InvoiceItem(name: 'Riz 5 kg', quantity: 1, unitPrice: 2500),
         ],
@@ -112,7 +112,7 @@ void main() {
           id: '20260815123456',
           clientName: 'Client Test',
           createdAt: DateTime(2026, 8, 15, 14, 30),
-          items: const [
+          items: [
             InvoiceItem(
               name: 'Eau minérale bouteille 1.5 litre fraîche',
               quantity: 1,
@@ -165,7 +165,7 @@ void main() {
         id: '20260815123456',
         clientName: 'Client Test',
         createdAt: DateTime(2026, 8, 15, 14, 30),
-        items: const [
+        items: [
           InvoiceItem(name: 'Article', quantity: 1, unitPrice: 125000000000),
         ],
       );
@@ -201,7 +201,7 @@ void main() {
             clientName: 'Client Test',
             createdAt: DateTime(2026, 8, 15, 14, 30),
             // 10 caractères pile : doit tenir sur une seule ligne.
-            items: const [
+            items: [
               InvoiceItem(name: 'ABCDEFGHIJ', quantity: 1, unitPrice: 100),
             ],
           ),
@@ -220,7 +220,7 @@ void main() {
             id: '20260815123456',
             clientName: 'Client Test',
             createdAt: DateTime(2026, 8, 15, 14, 30),
-            items: const [
+            items: [
               InvoiceItem(name: 'ABCDEFGHIJKLMNOP', quantity: 1, unitPrice: 100),
             ],
           ),
@@ -243,7 +243,7 @@ void main() {
             id: '20260815123456',
             clientName: 'Client Test',
             createdAt: DateTime(2026, 8, 15, 14, 30),
-            items: const [
+            items: [
               InvoiceItem(name: 'Article', quantity: 999, unitPrice: 100),
             ],
           ),
@@ -260,7 +260,7 @@ void main() {
             id: '20260815123456',
             clientName: 'Client Test',
             createdAt: DateTime(2026, 8, 15, 14, 30),
-            items: const [
+            items: [
               // Sous-total 1 250 000 : « 1 250 000 » = 9 car. avec espace →
               // _fitPrice retire l'espace : « 1250000 » (7 car.) tient en 8.
               InvoiceItem(name: 'Article', quantity: 1, unitPrice: 1250000),
@@ -279,7 +279,7 @@ void main() {
             id: '20260815123456',
             clientName: 'Client Test',
             createdAt: DateTime(2026, 8, 15, 14, 30),
-            items: const [
+            items: [
               // Sous-total 12 500 000 : « 12 500 000 » (10 car. avec espace)
               // → compacté : « 12500000 » = 8 caractères pile, non tronqué.
               InvoiceItem(name: 'Article', quantity: 1, unitPrice: 12500000),
@@ -299,7 +299,7 @@ void main() {
             id: '20260815123456',
             clientName: 'Client Test',
             createdAt: DateTime(2026, 8, 15, 14, 30),
-            items: const [
+            items: [
               // Sous-total = total à payer = 12 500 000 → « 12500000 » (8).
               InvoiceItem(name: 'Article', quantity: 1, unitPrice: 12500000),
             ],
