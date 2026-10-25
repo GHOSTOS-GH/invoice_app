@@ -1,17 +1,22 @@
 // lib/screens/history_screen.dart
-// Écran d'historique avec filtres, tri, statistiques, pagination, export groupé
+// Historique : recherche, bandeau de filtres unique, options dans une feuille,
+// cartes compactes, sélection multiple et résumé de période.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../models/invoice.dart';
 import '../services/backup_service.dart';
 import '../services/invoice_repository.dart';
 import '../services/pdf_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
 import '../utils/formatters.dart';
-import '../utils/constants.dart';
 import '../widgets/skeleton_loader.dart';
+import '../widgets/ui/ui.dart';
 import 'invoice_detail_screen.dart';
 
 enum SortOption {
@@ -31,7 +36,8 @@ class HistoryScreen extends StatefulWidget {
   State<HistoryScreen> createState() => HistoryScreenState();
 }
 
-class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveClientMixin {
+class HistoryScreenState extends State<HistoryScreen>
+    with AutomaticKeepAliveClientMixin {
   final _repository = InvoiceRepository();
   final _pdfService = PdfService();
   List<Invoice> _invoices = [];
@@ -44,10 +50,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   Set<String> _selectedIds = {};
 
   // Filtres d'état
-  bool _filterEnCours = false;
-  bool _filterEnLivraison = false;
-  bool _filterLivree = false;
-  bool _filterArchivee = false;
+  final Set<InvoiceStatus> _statusFilters = {};
 
   // Filtre par période de dates (ex: factures du 10/02 au 11/02)
   DateTimeRange? _filterDateRange;
@@ -85,10 +88,12 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
       if (_displayedCount < _filteredInvoices.length) {
         setState(() {
-          _displayedCount = (_displayedCount + 50).clamp(0, _filteredInvoices.length);
+          _displayedCount =
+              (_displayedCount + 50).clamp(0, _filteredInvoices.length);
         });
       }
     }
@@ -107,24 +112,12 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     });
   }
 
-  /// Méthode PURE : calcule la liste filtrée et triée sans toucher à l'état ni
-  /// appeler setState. Chaque action n'a plus qu'un seul setState.
-  List<Invoice> _applyFilters() {
+  /// Recherche + période, SANS le filtre de statut : sert de base aux
+  /// compteurs des puces, qui doivent rester lisibles quand un statut est
+  /// sélectionné.
+  List<Invoice> _baseFiltered() {
     var result = List<Invoice>.from(_invoices);
 
-    // Filtres de statut
-    final hasActiveStatusFilter = _filterEnCours || _filterEnLivraison || _filterLivree || _filterArchivee;
-    if (hasActiveStatusFilter) {
-      result = result.where((invoice) {
-        if (_filterEnCours && invoice.status == InvoiceStatus.enCours) return true;
-        if (_filterEnLivraison && invoice.status == InvoiceStatus.enLivraison) return true;
-        if (_filterLivree && invoice.status == InvoiceStatus.livree) return true;
-        if (_filterArchivee && invoice.status == InvoiceStatus.archivee) return true;
-        return false;
-      }).toList();
-    }
-
-    // Filtre par période de dates
     final dateRange = _filterDateRange;
     if (dateRange != null) {
       final start = DateTime(
@@ -136,20 +129,27 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
         dateRange.end.year,
         dateRange.end.month,
         dateRange.end.day,
-        23, 59, 59,
+        23,
+        59,
+        59,
       );
-      result = result.where((invoice) {
-        final d = invoice.createdAt;
-        return !d.isBefore(start) && !d.isAfter(end);
-      }).toList();
+      result = result
+          .where((invoice) =>
+              !invoice.createdAt.isBefore(start) &&
+              !invoice.createdAt.isAfter(end))
+          .toList();
     }
 
-    // Recherche étendue (client, articles, notes, numéro)
     if (_searchQuery.isNotEmpty) {
       result = result.where((invoice) {
-        if (invoice.clientName.toLowerCase().contains(_searchQuery)) return true;
+        if (invoice.clientName.toLowerCase().contains(_searchQuery)) {
+          return true;
+        }
         if (invoice.id.toLowerCase().contains(_searchQuery)) return true;
-        if (invoice.notes != null && invoice.notes!.toLowerCase().contains(_searchQuery)) return true;
+        if (invoice.notes != null &&
+            invoice.notes!.toLowerCase().contains(_searchQuery)) {
+          return true;
+        }
         for (final item in invoice.items) {
           if (item.name.toLowerCase().contains(_searchQuery)) return true;
         }
@@ -157,6 +157,18 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
       }).toList();
     }
 
+    return result;
+  }
+
+  /// Méthode PURE : calcule la liste filtrée et triée sans toucher à l'état ni
+  /// appeler setState.
+  List<Invoice> _applyFilters() {
+    var result = _baseFiltered();
+    if (_statusFilters.isNotEmpty) {
+      result = result
+          .where((invoice) => _statusFilters.contains(invoice.status))
+          .toList();
+    }
     _sortRows(result);
     return result;
   }
@@ -210,13 +222,15 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     });
   }
 
-  String _formatDate(DateTime date) => DateFormat('dd/MM/yyyy à HH:mm', 'fr_FR').format(date);
+  String _formatDate(DateTime date) =>
+      DateFormat('dd/MM/yyyy', 'fr_FR').format(date);
 
   void _openInvoiceDetail(Invoice invoice) {
     Navigator.of(context).push(
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (context, animation, secondaryAnimation) => InvoiceDetailScreen(
+        transitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            InvoiceDetailScreen(
           invoice: invoice,
           onInvoiceUpdated: widget.onInvoiceUpdated,
         ),
@@ -225,7 +239,9 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
             position: Tween<Offset>(
               begin: const Offset(1.0, 0.0),
               end: Offset.zero,
-            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeInOut)),
+            ).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+            ),
             child: child,
           );
         },
@@ -260,19 +276,29 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
         title: const Text('Confirmer la suppression'),
-        content: Text('Voulez-vous vraiment supprimer ${_selectedIds.length} facture(s) ?'),
+        content: Text(
+          'Voulez-vous vraiment supprimer ${_selectedIds.length} facture(s) ?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+            child: Text(
+              'Supprimer',
+              style: TextStyle(color: AppColors.of(context).danger),
+            ),
           ),
         ],
       ),
     );
-    if (confirm != true) return;
+    if (confirm != true || !mounted) return;
 
     final deletedCount = _selectedIds.length;
     await _repository.removeByIds(_selectedIds);
@@ -282,14 +308,11 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
       _selectedIds.clear();
       _displayedCount = 50;
     });
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$deletedCount facture(s) supprimée(s)'), backgroundColor: Colors.green,
-      behavior: SnackBarBehavior.floating),
-    );
+    AppSnack.success(context, '$deletedCount facture(s) supprimée(s)');
   }
 
-  /// Exporte en CSV la sélection actuellement filtrée (période, statut, recherche...).
+  /// Exporte en CSV la sélection actuellement filtrée (période, statut,
+  /// recherche...).
   Future<void> _exportFilteredCsv() async {
     if (_filteredInvoices.isEmpty) return;
     final backupService = BackupService();
@@ -297,39 +320,28 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     final filename =
         'factures_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv';
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Export CSV de ${_filteredInvoices.length} facture(s)...'),
-        backgroundColor: const Color(0xFF2563EB),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
+    AppSnack.info(
+      context,
+      'Export CSV de ${_filteredInvoices.length} facture(s)...',
+      duration: const Duration(seconds: 2),
     );
     try {
       await backupService.shareCsv(csv, filename);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur d\'export : $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      AppSnack.error(context, 'Erreur d\'export : $e');
     }
   }
 
   Future<void> _exportSelected() async {
     if (_selectedIds.isEmpty) return;
-    final selectedInvoices = _invoices.where((inv) => _selectedIds.contains(inv.id)).toList();
+    final selectedInvoices =
+        _invoices.where((inv) => _selectedIds.contains(inv.id)).toList();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Export de ${selectedInvoices.length} facture(s)...'),
-        backgroundColor: const Color(0xFF2563EB),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
+    AppSnack.info(
+      context,
+      'Export de ${selectedInvoices.length} facture(s)...',
+      duration: const Duration(seconds: 2),
     );
 
     // Un seul partage groupé (liste de XFile) au lieu d'ouvrir le
@@ -338,13 +350,7 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
       await _pdfService.shareInvoicesAsPdf(selectedInvoices);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur d\'export : $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      AppSnack.error(context, 'Erreur d\'export : $e');
     }
   }
 
@@ -357,10 +363,15 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
 
   void _clearStatusFilters() {
     setState(() {
-      _filterEnCours = false;
-      _filterEnLivraison = false;
-      _filterLivree = false;
-      _filterArchivee = false;
+      _statusFilters.clear();
+      _filteredInvoices = _applyFilters();
+      _displayedCount = 50;
+    });
+  }
+
+  void _toggleStatusFilter(InvoiceStatus status) {
+    setState(() {
+      if (!_statusFilters.add(status)) _statusFilters.remove(status);
       _filteredInvoices = _applyFilters();
       _displayedCount = 50;
     });
@@ -393,301 +404,244 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
     });
   }
 
+  Future<void> _openOptionsSheet() async {
+    await showAppSheet<void>(
+      context: context,
+      maxHeightFactor: 0.8,
+      builder: (_) => _HistoryOptionsSheet(
+        currentSort: _currentSort,
+        filteredCount: _filteredInvoices.length,
+        onSort: (option) {
+          setState(() {
+            _currentSort = option;
+            _filteredInvoices = _applyFilters();
+            _displayedCount = 50;
+          });
+        },
+        onExportCsv: _exportFilteredCsv,
+        onResetFilters: () {
+          setState(() {
+            _statusFilters.clear();
+            _filterDateRange = null;
+            _currentSort = SortOption.dateDesc;
+            _searchController.clear();
+            _searchQuery = '';
+            _filteredInvoices = _applyFilters();
+            _displayedCount = 50;
+          });
+        },
+      ),
+    );
+  }
+
   int get _totalInvoices => _filteredInvoices.length;
   int get _totalAmount =>
       _filteredInvoices.fold(0, (sum, inv) => sum + inv.payableTotal);
-  Map<InvoiceStatus, int> get _statusCount {
-    return {
-      InvoiceStatus.enCours: _filteredInvoices.where((inv) => inv.status == InvoiceStatus.enCours).length,
-      InvoiceStatus.enLivraison: _filteredInvoices.where((inv) => inv.status == InvoiceStatus.enLivraison).length,
-      InvoiceStatus.livree: _filteredInvoices.where((inv) => inv.status == InvoiceStatus.livree).length,
-      InvoiceStatus.archivee: _filteredInvoices.where((inv) => inv.status == InvoiceStatus.archivee).length,
-    };
+
+  int _countFor(InvoiceStatus status) {
+    if (!_statusFilters.contains(status)) {
+      // Compteur stable par rapport à la recherche et à la période.
+      return _baseFiltered().where((inv) => inv.status == status).length;
+    }
+    return _filteredInvoices.where((inv) => inv.status == status).length;
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final colors = AppColors.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: colors.canvas,
       appBar: AppBar(
-        title: _isSelectionMode ? Text('${_selectedIds.length} sélectionnée(s)') : const Text('Historique'),
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1E293B),
-        shape: const Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+        title: Text(
+          _isSelectionMode
+              ? '${_selectedIds.length} sélectionnée(s)'
+              : 'Historique',
+        ),
         leading: _isSelectionMode
-            ? IconButton(icon: const Icon(Icons.close), onPressed: _exitSelectionMode)
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: 'Quitter la sélection',
+                onPressed: _exitSelectionMode,
+              )
             : null,
         actions: _isSelectionMode
-            ? [
-                IconButton(icon: const Icon(Icons.select_all), onPressed: _selectAll),
-                IconButton(
-                  icon: const Icon(Icons.share),
-                  onPressed: _selectedIds.isEmpty ? null : _exportSelected,
-                  tooltip: 'Exporter la sélection',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: _selectedIds.isEmpty ? null : _deleteSelected,
-                  color: Colors.red,
-                ),
-              ]
-            : [
-                PopupMenuButton<SortOption>(
-                  icon: const Icon(Icons.sort),
-                  tooltip: 'Trier par',
-                  onSelected: (SortOption option) {
-                    setState(() {
-                      _currentSort = option;
-                      _filteredInvoices = _applyFilters();
-                      _displayedCount = 50;
-                    });
-                  },
-                  itemBuilder: (BuildContext context) => [
-                    const PopupMenuItem(value: SortOption.dateDesc, child: Text('Date (récente → ancienne)')),
-                    const PopupMenuItem(value: SortOption.dateAsc, child: Text('Date (ancienne → récente)')),
-                    const PopupMenuItem(value: SortOption.totalDesc, child: Text('Montant (décroissant)')),
-                    const PopupMenuItem(value: SortOption.totalAsc, child: Text('Montant (croissant)')),
-                    const PopupMenuItem(value: SortOption.clientAsc, child: Text('Client (A → Z)')),
-                    const PopupMenuItem(value: SortOption.statusAsc, child: Text('Par statut')),
-                  ],
-                ),
-                IconButton(icon: const Icon(Icons.checklist), onPressed: () => setState(() => _isSelectionMode = true)),
-              ],
-        bottom: _isSelectionMode
             ? null
-            : PreferredSize(
-                preferredSize: const Size.fromHeight(60),
-                child: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Rechercher par client, article, notes, n°...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                    ),
-                  ),
+            : [
+                IconButton(
+                  icon: const Icon(Icons.tune),
+                  tooltip: 'Options et tri',
+                  onPressed: _openOptionsSheet,
                 ),
-              ),
+                IconButton(
+                  icon: const Icon(Icons.checklist),
+                  tooltip: 'Sélectionner',
+                  onPressed: () => setState(() => _isSelectionMode = true),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+              ],
       ),
       body: _isLoading
           ? const SkeletonList(itemCount: 5)
           : _loadingError
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                      const SizedBox(height: 16),
-                      const Text('Erreur de chargement', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: _loadInvoices,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Réessayer'),
-                      ),
-                    ],
-                  ),
+              ? EmptyState(
+                  icon: Icons.error_outline,
+                  title: 'Erreur de chargement',
+                  message:
+                      'Les factures n\'ont pas pu être lues. Réessayez sans '
+                      'rien perdre : les données sont conservées.',
+                  actionLabel: 'Réessayer',
+                  actionIcon: Icons.refresh,
+                  onAction: _loadInvoices,
                 )
               : Column(
                   children: [
-                    if (!_isSelectionMode) ...[
-                      Container(
-                        color: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text('$_totalInvoices facture(s)', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    _filterDateRange != null
-                                        ? 'Total (${DateFormat('dd/MM').format(_filterDateRange!.start)} → ${DateFormat('dd/MM').format(_filterDateRange!.end)}) : ${formatCurrency(_totalAmount)}'
-                                        : 'Total : ${formatCurrency(_totalAmount)}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF2563EB)),
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.ios_share),
-                                  tooltip: 'Exporter la sélection filtrée (CSV)',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: _filteredInvoices.isEmpty ? null : _exportFilteredCsv,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: [
-                                  _buildStatusChip('En cours', _statusCount[InvoiceStatus.enCours]!, InvoiceStatus.enCours.color),
-                                  const SizedBox(width: 8),
-                                  _buildStatusChip('En livraison', _statusCount[InvoiceStatus.enLivraison]!, InvoiceStatus.enLivraison.color),
-                                  const SizedBox(width: 8),
-                                  _buildStatusChip('Livrée', _statusCount[InvoiceStatus.livree]!, InvoiceStatus.livree.color),
-                                  const SizedBox(width: 8),
-                                  _buildStatusChip('Archivée', _statusCount[InvoiceStatus.archivee]!, InvoiceStatus.archivee.color),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: _pickDateRange,
-                                  icon: Icon(
-                                    Icons.date_range,
-                                    size: 18,
-                                    color: _filterDateRange != null ? const Color(0xFF2563EB) : const Color(0xFF64748B),
-                                  ),
-                                  label: Text(
-                                    _filterDateRange == null
-                                        ? 'Période'
-                                        : '${DateFormat('dd/MM/yyyy').format(_filterDateRange!.start)} → ${DateFormat('dd/MM/yyyy').format(_filterDateRange!.end)}',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: _filterDateRange != null ? const Color(0xFF2563EB) : const Color(0xFF64748B),
-                                    ),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                    visualDensity: VisualDensity.compact,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    side: BorderSide(
-                                      color: _filterDateRange != null ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0),
-                                    ),
-                                  ),
-                                ),
-                                if (_filterDateRange != null) ...[
-                                  const SizedBox(width: 4),
-                                  IconButton(
-                                    icon: const Icon(Icons.close, size: 18),
-                                    onPressed: _clearDateFilter,
-                                    tooltip: 'Effacer la période',
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                FilterChip(
-                                  label: const Text('En cours'),
-                                  selected: _filterEnCours,
-                                  onSelected: (v) {
-                                    setState(() { _filterEnCours = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
-                                  },
-                                  backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.enCours.color).withValues(alpha: 0.2),
-                                  labelStyle: TextStyle(color: _filterEnCours ? Color(InvoiceStatus.enCours.color) : const Color(0xFF64748B)),
-                                  side: BorderSide(color: _filterEnCours ? Color(InvoiceStatus.enCours.color) : const Color(0xFFE2E8F0)),
-                                ),
-                                FilterChip(
-                                  label: const Text('En livraison'),
-                                  selected: _filterEnLivraison,
-                                  onSelected: (v) {
-                                    setState(() { _filterEnLivraison = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
-                                  },
-                                  backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.enLivraison.color).withValues(alpha: 0.2),
-                                  labelStyle: TextStyle(color: _filterEnLivraison ? Color(InvoiceStatus.enLivraison.color) : const Color(0xFF64748B)),
-                                  side: BorderSide(color: _filterEnLivraison ? Color(InvoiceStatus.enLivraison.color) : const Color(0xFFE2E8F0)),
-                                ),
-                                FilterChip(
-                                  label: const Text('Livrée'),
-                                  selected: _filterLivree,
-                                  onSelected: (v) {
-                                    setState(() { _filterLivree = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
-                                  },
-                                  backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.livree.color).withValues(alpha: 0.2),
-                                  labelStyle: TextStyle(color: _filterLivree ? Color(InvoiceStatus.livree.color) : const Color(0xFF64748B)),
-                                  side: BorderSide(color: _filterLivree ? Color(InvoiceStatus.livree.color) : const Color(0xFFE2E8F0)),
-                                ),
-                                FilterChip(
-                                  label: const Text('Archivée'),
-                                  selected: _filterArchivee,
-                                  onSelected: (v) {
-                                    setState(() { _filterArchivee = v; _filteredInvoices = _applyFilters(); _displayedCount = 50; });
-                                  },
-                                  backgroundColor: const Color(0xFFF1F5F9),
-                                  selectedColor: Color(InvoiceStatus.archivee.color).withValues(alpha: 0.2),
-                                  labelStyle: TextStyle(color: _filterArchivee ? Color(InvoiceStatus.archivee.color) : const Color(0xFF64748B)),
-                                  side: BorderSide(color: _filterArchivee ? Color(InvoiceStatus.archivee.color) : const Color(0xFFE2E8F0)),
-                                ),
-                                if (_filterEnCours || _filterEnLivraison || _filterLivree || _filterArchivee)
-                                  ActionChip(
-                                    label: const Text('Réinitialiser'),
-                                    onPressed: _clearStatusFilters,
-                                    backgroundColor: Colors.grey[100],
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1),
-                    ],
-                    Expanded(
-                      child: _filteredInvoices.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.receipt_long_outlined, size: 80, color: Colors.grey[300]),
-                                  const SizedBox(height: 16),
-                                  Text(_searchQuery.isEmpty ? 'Aucune facture' : 'Aucun résultat', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
-                                ],
-                              ),
-                            )
-                          : RefreshIndicator(
-                              onRefresh: _loadInvoices,
-                              child: ListView.separated(
-                                controller: _scrollController,
-                                padding: const EdgeInsets.all(16),
-                                itemCount: (_displayedCount < _filteredInvoices.length) ? _displayedCount + 1 : _filteredInvoices.length,
-                                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                                itemBuilder: (context, index) {
-                                  if (index == _displayedCount && _displayedCount < _filteredInvoices.length) {
-                                    return const Padding(
-                                      padding: EdgeInsets.all(16),
-                                      child: Center(child: CircularProgressIndicator()),
-                                    );
-                                  }
-                                  final invoice = _filteredInvoices[index];
-                                  final isSelected = _selectedIds.contains(invoice.id);
-                                  
-                                  if (_isSelectionMode) {
-                                    return _buildInvoiceCard(invoice, isSelected, index);
-                                  }
-                                  
-                                  return _buildSwipeableInvoiceCard(invoice, isSelected, index);
-                                },
-                              ),
-                            ),
-                    ),
+                    if (!_isSelectionMode) _buildSearchAndFilters(),
+                    Expanded(child: _buildList()),
+                    if (_isSelectionMode) _buildSelectionBar(),
                   ],
                 ),
     );
   }
 
-  Widget _buildSwipeableInvoiceCard(Invoice invoice, bool isSelected, int index) {
+  Widget _buildSearchAndFilters() {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      color: colors.surface,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        AppSpacing.md,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _searchController,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Rechercher par client, article, notes, n°...',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              isDense: true,
+              suffixIcon: _searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Effacer la recherche',
+                      onPressed: () => _searchController.clear(),
+                    ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          // UN SEUL bandeau de filtres : statuts (avec compteurs) + période.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final status in InvoiceStatus.values) ...[
+                  _StatusFilterChip(
+                    status: status,
+                    count: _countFor(status),
+                    selected: _statusFilters.contains(status),
+                    onTap: () => _toggleStatusFilter(status),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                ],
+                _PeriodChip(
+                  range: _filterDateRange,
+                  onPressed: _pickDateRange,
+                  onClear: _filterDateRange == null ? null : _clearDateFilter,
+                ),
+                if (_statusFilters.isNotEmpty) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  TextButton(
+                    onPressed: _clearStatusFilters,
+                    child: const Text('Réinitialiser'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$_totalInvoices facture(s)',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colors.textMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(
+                child: Text(
+                  _filterDateRange != null
+                      ? 'Total (${DateFormat('dd/MM').format(_filterDateRange!.start)} → ${DateFormat('dd/MM').format(_filterDateRange!.end)}) : ${formatCurrency(_totalAmount)}'
+                      : 'Total à payer : ${formatCurrency(_totalAmount)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    if (_filteredInvoices.isEmpty) {
+      return EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: _searchQuery.isEmpty ? 'Aucune facture' : 'Aucun résultat',
+        message: _searchQuery.isEmpty
+            ? 'Les factures créées apparaîtront ici.'
+            : 'Aucune facture ne correspond à cette recherche.',
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadInvoices,
+      child: ListView.separated(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        itemCount: (_displayedCount < _filteredInvoices.length)
+            ? _displayedCount + 1
+            : _filteredInvoices.length,
+        separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+        itemBuilder: (context, index) {
+          if (index == _displayedCount &&
+              _displayedCount < _filteredInvoices.length) {
+            return const Padding(
+              padding: EdgeInsets.all(AppSpacing.lg),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final invoice = _filteredInvoices[index];
+          final isSelected = _selectedIds.contains(invoice.id);
+
+          if (_isSelectionMode) {
+            return _buildInvoiceCard(invoice, isSelected);
+          }
+          return _buildSwipeableInvoiceCard(invoice, isSelected);
+        },
+      ),
+    );
+  }
+
+  Widget _buildSwipeableInvoiceCard(Invoice invoice, bool isSelected) {
+    final colors = AppColors.of(context);
     return Dismissible(
       key: Key('swipe_${invoice.id}'),
       confirmDismiss: (direction) async {
@@ -731,174 +685,440 @@ class HistoryScreenState extends State<HistoryScreen> with AutomaticKeepAliveCli
       },
       background: Container(
         alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.only(left: 20),
+        padding: const EdgeInsets.only(left: AppSpacing.xl),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Constants.cardRadius),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF16A34A), Color(0xFF15803D)],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
+          color: colors.success,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
-        child: const Row(
+        child: Row(
           children: [
-            Icon(Icons.arrow_forward, color: Colors.white, size: 24),
-            SizedBox(width: 8),
-            Icon(Icons.local_shipping, color: Colors.white, size: 20),
-            SizedBox(width: 4),
-            Text('Avancer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+            Icon(Icons.arrow_forward, color: colors.surface, size: 22),
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              'Avancer',
+              style: TextStyle(
+                color: colors.surface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
       ),
       secondaryBackground: Container(
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
+        padding: const EdgeInsets.only(right: AppSpacing.xl),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Constants.cardRadius),
-          gradient: const LinearGradient(
-            colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
-            begin: Alignment.centerRight,
-            end: Alignment.centerLeft,
-          ),
+          color: colors.warning,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
-        child: const Row(
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            Text('Reculer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-            SizedBox(width: 4),
-            Icon(Icons.arrow_back, color: Colors.white, size: 24),
+            Text(
+              'Reculer',
+              style: TextStyle(
+                color: colors.surface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Icon(Icons.arrow_back, color: colors.surface, size: 22),
           ],
         ),
       ),
       direction: DismissDirection.horizontal,
-      movementDuration: const Duration(milliseconds: 300),
+      movementDuration: const Duration(milliseconds: 200),
       resizeDuration: null,
-      child: _buildInvoiceCard(invoice, isSelected, index),
+      child: _buildInvoiceCard(invoice, isSelected),
     );
   }
 
-  Future<void> _updateInvoiceStatus(Invoice invoice, InvoiceStatus newStatus) async {
+  Future<void> _updateInvoiceStatus(
+    Invoice invoice,
+    InvoiceStatus newStatus,
+  ) async {
     final updatedInvoice = invoice.copyWith(status: newStatus);
     await _repository.update(updatedInvoice);
     if (!mounted) return;
     widget.onInvoiceUpdated();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${invoice.clientName} → ${newStatus.label}'),
-        backgroundColor: Color(newStatus.color),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+    AppSnack.neutral(
+      context,
+      '${invoice.clientName} → ${newStatus.label}',
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  Widget _buildInvoiceCard(Invoice invoice, bool isSelected) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
+    return AppCard(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.md,
+      ),
+      color: isSelected ? colors.primary.withValues(alpha: 0.06) : null,
+      border: isSelected
+          ? BorderSide(color: colors.primary.withValues(alpha: 0.5))
+          : null,
+      onTap: () {
+        if (_isSelectionMode) {
+          _toggleSelection(invoice.id);
+        } else {
+          _openInvoiceDetail(invoice);
+        }
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              if (_isSelectionMode) ...[
+                Checkbox(
+                  value: isSelected,
+                  onChanged: (_) => _toggleSelection(invoice.id),
+                  activeColor: colors.primary,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+              ] else ...[
+                ClientAvatar(name: invoice.clientName),
+                const SizedBox(width: AppSpacing.md),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      invoice.clientName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleSmall?.copyWith(
+                        color: colors.textStrong,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today,
+                            size: 12, color: colors.textMuted),
+                        const SizedBox(width: AppSpacing.xs),
+                        Expanded(
+                          child: Text(
+                            _formatDate(invoice.createdAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colors.textMuted,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: AmountText(
+                  invoice.payableTotal,
+                  size: AmountSize.medium,
+                  color: colors.textStrong,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              StatusBadge(status: invoice.status, compact: true),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildInvoiceCard(Invoice invoice, bool isSelected, int index) {
-    return Card(
-        elevation: 2,
-        shadowColor: Colors.blue.withValues(alpha: 0.05),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Constants.cardRadius)),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(Constants.cardRadius),
-          onTap: () {
-            if (_isSelectionMode) {
-              _toggleSelection(invoice.id);
-            } else {
-              _openInvoiceDetail(invoice);
-            }
-          },
-          onLongPress: () {
-            if (!_isSelectionMode) {
-              setState(() {
-                _isSelectionMode = true;
-                _selectedIds.add(invoice.id);
-              });
-            }
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
+  Widget _buildSelectionBar() {
+    final colors = AppColors.of(context);
+    final hasSelection = _selectedIds.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(top: BorderSide(color: colors.border)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.select_all),
+                tooltip: _selectedIds.length == _filteredInvoices.length
+                    ? 'Tout désélectionner'
+                    : 'Tout sélectionner',
+                onPressed: _selectAll,
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                color: colors.danger,
+                tooltip: 'Supprimer la sélection',
+                onPressed: hasSelection ? _deleteSelected : null,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: hasSelection ? _exportSelected : null,
+                  icon: const Icon(Icons.share_outlined, size: 18),
+                  label: const Text('Partager'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Puce de filtre de statut avec compteur.
+class _StatusFilterChip extends StatelessWidget {
+  final InvoiceStatus status;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _StatusFilterChip({
+    required this.status,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final palette = statusStyle(context, status);
+    final textTheme = Theme.of(context).textTheme;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${status.label}, $count facture(s)',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: selected ? palette.background : colors.surfaceAlt,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? palette.foreground : colors.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                status.label,
+                style: textTheme.labelSmall?.copyWith(
+                  color: selected ? palette.foreground : colors.textBody,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                constraints: const BoxConstraints(minWidth: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: selected ? palette.foreground : colors.border,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$count',
+                  textAlign: TextAlign.center,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: selected ? palette.background : colors.textBody,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Puce de période : ouvre le sélecteur de dates, avec effacement possible.
+class _PeriodChip extends StatelessWidget {
+  final DateTimeRange? range;
+  final VoidCallback onPressed;
+  final VoidCallback? onClear;
+
+  const _PeriodChip({
+    required this.range,
+    required this.onPressed,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final active = range != null;
+    final label = range == null
+        ? 'Période'
+        : '${DateFormat('dd/MM/yyyy').format(range!.start)} → '
+            '${DateFormat('dd/MM/yyyy').format(range!.end)}';
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(999),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: active
+                  ? colors.primary.withValues(alpha: 0.12)
+                  : colors.surfaceAlt,
+              borderRadius: BorderRadius.circular(999),
+              border:
+                  Border.all(color: active ? colors.primary : colors.border),
+            ),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (_isSelectionMode) ...[
-                  Checkbox(
-                    value: isSelected,
-                    onChanged: (_) => _toggleSelection(invoice.id),
-                    activeColor: const Color(0xFF2563EB),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Hero(
-                  tag: 'invoice-icon-${invoice.id}',
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2563EB), Color(0xFF1E40AF)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.receipt, color: Colors.white, size: 28),
-                  ),
+                Icon(
+                  Icons.date_range,
+                  size: 16,
+                  color: active ? colors.primary : colors.textMuted,
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(invoice.clientName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
-                          const SizedBox(width: 4),
-                          Text(_formatDate(invoice.createdAt), style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                        ],
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: active ? colors.primary : colors.textBody,
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(formatCurrency(invoice.payableTotal), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Color(invoice.status.color).withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(invoice.status.label, style: TextStyle(fontSize: 12, color: Color(invoice.status.color), fontWeight: FontWeight.w600)),
-                    ),
-                  ],
                 ),
               ],
             ),
           ),
         ),
-      );
-  }
-
-  Widget _buildStatusChip(String label, int count, int color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: Color(color).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: TextStyle(fontSize: 12, color: Color(color))),
-          const SizedBox(width: 4),
-          Container(
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(color: Color(color), shape: BoxShape.circle),
-            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-            child: Text(count.toString(), style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        if (onClear != null)
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            tooltip: 'Effacer la période',
+            onPressed: onClear,
           ),
-        ],
+      ],
+    );
+  }
+}
+
+/// Options avancées : tri, export CSV et réinitialisation des filtres.
+class _HistoryOptionsSheet extends StatelessWidget {
+  final SortOption currentSort;
+  final int filteredCount;
+  final ValueChanged<SortOption> onSort;
+  final VoidCallback onExportCsv;
+  final VoidCallback onResetFilters;
+
+  const _HistoryOptionsSheet({
+    required this.currentSort,
+    required this.filteredCount,
+    required this.onSort,
+    required this.onExportCsv,
+    required this.onResetFilters,
+  });
+
+  static const Map<SortOption, String> _labels = {
+    SortOption.dateDesc: 'Date (récente → ancienne)',
+    SortOption.dateAsc: 'Date (ancienne → récente)',
+    SortOption.totalDesc: 'Montant (décroissant)',
+    SortOption.totalAsc: 'Montant (croissant)',
+    SortOption.clientAsc: 'Client (A → Z)',
+    SortOption.statusAsc: 'Par statut',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return ListView(
+      shrinkWrap: true,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.lg,
       ),
+      children: [
+        const SectionHeader(
+          title: 'Options et tri',
+          subtitle: 'Affinez la liste sans quitter l\'historique',
+          icon: Icons.tune,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        for (final entry in _labels.entries)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            minVerticalPadding: AppSpacing.sm,
+            title: Text(entry.value),
+            trailing: currentSort == entry.key
+                ? Icon(Icons.check, color: colors.primary)
+                : null,
+            onTap: () {
+              onSort(entry.key);
+              Navigator.pop(context);
+            },
+          ),
+        Divider(color: colors.border),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          minVerticalPadding: AppSpacing.sm,
+          leading: Icon(Icons.table_chart_outlined, color: colors.primary),
+          title: const Text('Exporter en CSV'),
+          subtitle: Text(
+            '$filteredCount facture(s) filtrée(s)',
+            style: TextStyle(color: colors.textMuted, fontSize: 12),
+          ),
+          onTap: () {
+            Navigator.pop(context);
+            onExportCsv();
+          },
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          minVerticalPadding: AppSpacing.sm,
+          leading: Icon(Icons.filter_alt_off_outlined, color: colors.textMuted),
+          title: const Text('Réinitialiser les filtres'),
+          onTap: () {
+            Navigator.pop(context);
+            onResetFilters();
+          },
+        ),
+      ],
     );
   }
 }

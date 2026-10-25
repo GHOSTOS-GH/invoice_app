@@ -15,10 +15,15 @@ import '../services/bluetooth_printer_service.dart';
 import '../services/network_printer_service.dart';
 import '../services/receipt_builder.dart';
 import '../services/receipt_settings_service.dart';
-import '../utils/constants.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
 import '../widgets/bluetooth_device_sheet.dart';
 import '../widgets/network_printer_sheet.dart';
 import '../widgets/receipt_preview.dart';
+import '../widgets/ui/app_card.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/sheet_handle.dart';
 
 class ReceiptPreviewScreen extends StatefulWidget {
   final Invoice invoice;
@@ -110,58 +115,62 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
 
   /// Menu du haut : choisir / configurer l'imprimante.
   Future<void> _openPrinterMenu() async {
+    final colors = AppColors.of(context);
     final action = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: colors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.lg),
+        ),
       ),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                0,
+                AppSpacing.lg,
+                AppSpacing.sm,
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Imprimante du reçu',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Imprimante du reçu',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
             ListTile(
-              leading: const Icon(Icons.bluetooth, color: Color(0xFF2563EB)),
-              title: const Text('Imprimante Bluetooth',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
+              leading: Icon(Icons.bluetooth, color: colors.primary),
+              title: const Text('Imprimante Bluetooth'),
               subtitle: Text(
                 _btDevice?.name ?? 'Non configurée · Android uniquement',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 12, color: colors.textMuted),
               ),
               trailing: _isAndroid
                   ? const Icon(Icons.chevron_right)
-                  : const Icon(Icons.lock_outline, size: 16, color: Colors.grey),
+                  : Icon(Icons.lock_outline, size: 16, color: colors.textMuted),
               onTap: _isAndroid
                   ? () => Navigator.pop(ctx, 'bluetooth')
                   : null,
             ),
             ListTile(
-              leading: const Icon(Icons.wifi, color: Color(0xFF2563EB)),
-              title: const Text('Imprimante Wi-Fi',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
+              leading: Icon(Icons.wifi, color: colors.primary),
+              title: const Text('Imprimante Wi-Fi'),
               subtitle: Text(
                 _wifiIp ?? 'Non configurée · Android + iPhone',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 12, color: colors.textMuted),
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.pop(ctx, 'wifi'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
           ],
         ),
       ),
@@ -186,13 +195,11 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : const Color(0xFF16A34A),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (isError) {
+      AppSnack.error(context, message);
+    } else {
+      AppSnack.success(context, message);
+    }
   }
 
   Future<void> _printBluetooth() async {
@@ -238,36 +245,28 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
   void _showPrintError(Object e, {required Future<void> Function() openSheet}) {
     if (!mounted) return;
     final message = e.toString().replaceFirst('Bad state: ', '');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: 'Configurer',
-          textColor: Colors.white,
-          onPressed: openSheet,
-        ),
-      ),
+    AppSnack.error(
+      context,
+      message,
+      actionLabel: 'Configurer',
+      onAction: () => openSheet(),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFE2E8F0),
+      backgroundColor: colors.canvas,
       appBar: AppBar(
         title: const Text('Aperçu du reçu'),
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1E293B),
-        shape: const Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
         actions: [
           IconButton(
             icon: const Icon(Icons.print),
             tooltip: 'Configurer l’imprimante',
             onPressed: _openPrinterMenu,
           ),
+          const SizedBox(width: AppSpacing.xs),
         ],
       ),
       body: FutureBuilder<ReceiptContent>(
@@ -285,7 +284,7 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                   decoration: BoxDecoration(
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.18),
+                        color: colors.shadow,
                         blurRadius: 14,
                         offset: const Offset(0, 4),
                       ),
@@ -303,48 +302,47 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
       ),
       bottomNavigationBar: SafeArea(
         child: Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          color: colors.surface,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.md,
+          ),
           child: Row(
             children: [
               if (_isAndroid) ...[
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _printingBt || _printingWifi ? null : _printBluetooth,
+                    onPressed:
+                        _printingBt || _printingWifi ? null : _printBluetooth,
                     icon: _printingBt
                         ? const SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.bluetooth),
+                        : const Icon(Icons.bluetooth, size: 18),
                     label: Text(_printingBt ? 'Envoi…' : 'Bluetooth'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSpacing.md),
               ],
               Expanded(
                 flex: _isAndroid ? 1 : 2,
-                child: ElevatedButton.icon(
+                child: FilledButton.icon(
                   onPressed: _printingBt || _printingWifi ? null : _printWifi,
                   icon: _printingWifi
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: colors.onPrimary,
                           ),
                         )
-                      : const Icon(Icons.wifi),
+                      : const Icon(Icons.wifi, size: 18),
                   label: Text(_printingWifi ? 'Envoi…' : 'Imprimer Wi-Fi'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: const Color(0xFF2563EB),
-                  ),
                 ),
               ),
             ],
@@ -355,14 +353,10 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
   }
 
   Widget _buildInfoBar(ReceiptContent content) {
+    final colors = AppColors.of(context);
     final settings = content.settings;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(Constants.cardRadius),
-        border: Border.all(color: const Color(0xFFEDF1F7)),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -372,20 +366,16 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                 icon: Icons.straighten,
                 label: settings.format.label,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.sm),
               _chip(
-                icon: _wifiIp != null
-                    ? Icons.wifi
-                    : Icons.wifi_off,
+                icon: _wifiIp != null ? Icons.wifi : Icons.wifi_off,
                 label: _wifiIp ?? 'Wi-Fi : non configuré',
-                color: _wifiIp != null
-                    ? const Color(0xFF2563EB)
-                    : const Color(0xFF94A3B8),
+                color: _wifiIp != null ? colors.primary : colors.textMuted,
               ),
             ],
           ),
           if (_isAndroid) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
                 _chip(
@@ -393,14 +383,13 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                       ? Icons.bluetooth_connected
                       : Icons.bluetooth_disabled,
                   label: _btDevice?.name ?? 'Bluetooth : non configuré',
-                  color: _btDevice != null
-                      ? const Color(0xFF16A34A)
-                      : const Color(0xFF94A3B8),
+                  color:
+                      _btDevice != null ? colors.success : colors.textMuted,
                 ),
               ],
             ),
           ],
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpacing.sm),
           Center(
             child: TextButton.icon(
               onPressed: _openPrinterMenu,
@@ -418,18 +407,21 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
     required String label,
     Color? color,
   }) {
-    final c = color ?? const Color(0xFF2563EB);
+    final c = color ?? AppColors.of(context).primary;
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: 7,
+        ),
         decoration: BoxDecoration(
           color: c.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
         child: Row(
           children: [
             Icon(icon, size: 15, color: c),
-            const SizedBox(width: 6),
+            const SizedBox(width: AppSpacing.xs),
             Expanded(
               child: Text(
                 label,

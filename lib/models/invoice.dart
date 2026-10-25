@@ -68,16 +68,18 @@ class InvoiceItem {
       );
 }
 
+/// Statut d'une facture. Aucune couleur ici : l'apparence vient de
+/// `statusStyle(context, status)` (lib/theme/app_colors.dart), et le PDF
+/// possède son propre mapping.
 enum InvoiceStatus {
-  enCours('En cours', 0xFF6B4C4C),
-  enLivraison('En livraison', 0xFFFFC107),
-  livree('Livrée', 0xFF4CAF50),
-  archivee('Archivée', 0xFF9E9E9E);
+  enCours('En cours'),
+  enLivraison('En livraison'),
+  livree('Livrée'),
+  archivee('Archivée');
 
   final String label;
-  final int color;
 
-  const InvoiceStatus(this.label, this.color);
+  const InvoiceStatus(this.label);
 }
 
 class Invoice {
