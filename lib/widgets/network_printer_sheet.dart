@@ -7,6 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/network_printer_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
+import 'ui/sheet_handle.dart';
 
 /// Ouvre la feuille de configuration de l'imprimante Wi-Fi.
 /// Retourne true si une imprimante a été enregistrée.
@@ -14,12 +18,15 @@ Future<bool> showNetworkPrinterSheet(
   BuildContext context,
   NetworkPrinterService service,
 ) {
+  final colors = AppColors.of(context);
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
+    backgroundColor: colors.surface,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(AppRadius.lg),
+      ),
     ),
     builder: (ctx) => _NetworkPrinterSheet(service: service),
   ).then((v) => v ?? false);
@@ -87,8 +94,8 @@ class _NetworkPrinterSheetState extends State<_NetworkPrinterSheet> {
       _testing = true;
       _testResult = null;
     });
-    final result = await widget.service
-        .testConnection(_ipController.text.trim());
+    final result =
+        await widget.service.testConnection(_ipController.text.trim());
     if (!mounted) return;
     setState(() {
       _testing = false;
@@ -113,6 +120,7 @@ class _NetworkPrinterSheetState extends State<_NetworkPrinterSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
@@ -120,54 +128,48 @@ class _NetworkPrinterSheetState extends State<_NetworkPrinterSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
+            const SheetHandle(),
+            Text(
               'Imprimante Wi-Fi',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colors.textStrong,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: AppSpacing.xs),
             Text(
               'ESC/POS · port 9100 · Android + iPhone',
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 12, color: colors.textMuted),
             ),
-            const SizedBox(height: 12),
-            const Divider(height: 1),
+            const SizedBox(height: AppSpacing.md),
+            Divider(height: 1, color: colors.border),
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   TextField(
                     controller: _ipController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
                     ],
                     decoration: const InputDecoration(
                       labelText: 'Adresse IP de l\'imprimante',
                       hintText: '192.168.1.50',
-                      prefixIcon: Icon(Icons.wifi),
+                      prefixIcon: Icon(Icons.wifi, size: 20),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   if (_testResult != null)
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(AppSpacing.md),
                       decoration: BoxDecoration(
-                        color: (_testOk
-                                ? const Color(0xFF16A34A)
-                                : Colors.red)
+                        color: (_testOk ? colors.success : colors.danger)
                             .withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                       child: Row(
                         children: [
@@ -176,19 +178,15 @@ class _NetworkPrinterSheetState extends State<_NetworkPrinterSheet> {
                                 ? Icons.check_circle_outline
                                 : Icons.error_outline,
                             size: 18,
-                            color: _testOk
-                                ? const Color(0xFF16A34A)
-                                : Colors.red,
+                            color: _testOk ? colors.success : colors.danger,
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: AppSpacing.sm),
                           Expanded(
                             child: Text(
                               _testResult!,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: _testOk
-                                    ? const Color(0xFF166534)
-                                    : const Color(0xFF991B1B),
+                                color: _testOk ? colors.success : colors.danger,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -196,7 +194,7 @@ class _NetworkPrinterSheetState extends State<_NetworkPrinterSheet> {
                         ],
                       ),
                     ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   OutlinedButton.icon(
                     onPressed: _testing ? null : _test,
                     icon: _testing
@@ -205,21 +203,26 @@ class _NetworkPrinterSheetState extends State<_NetworkPrinterSheet> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.network_check),
-                    label: Text(_testing ? 'Test en cours…' : 'Tester la connexion'),
+                        : const Icon(Icons.network_check, size: 18),
+                    label: Text(
+                      _testing ? 'Test en cours…' : 'Tester la connexion',
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  ElevatedButton.icon(
+                  const SizedBox(height: AppSpacing.md),
+                  FilledButton.icon(
                     onPressed: _save,
-                    icon: const Icon(Icons.save),
+                    icon: const Icon(Icons.save, size: 18),
                     label: const Text('Enregistrer cette imprimante'),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   Text(
-                    'L\'imprimante doit être connectée au même réseau Wi-Fi que votre téléphone/tablette. Son adresse IP se trouve dans les réglages de l\'imprimante (ou sur une page de test). Le port 9100 est utilisé par défaut.',
+                    'L\'imprimante doit être connectée au même réseau Wi-Fi '
+                    'que votre téléphone/tablette. Son adresse IP se trouve '
+                    'dans les réglages de l\'imprimante (ou sur une page de '
+                    'test). Le port 9100 est utilisé par défaut.',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[600],
+                      color: colors.textMuted,
                       height: 1.4,
                     ),
                   ),

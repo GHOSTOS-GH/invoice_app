@@ -3,6 +3,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
 import '../utils/formatters.dart';
 
 class LastPriceHint extends StatelessWidget {
@@ -32,6 +36,8 @@ class LastPriceHint extends StatelessWidget {
     final price = lastPrice;
     if (price == null) return const SizedBox.shrink();
 
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
     final client = (clientName ?? '').trim();
     final label = client.isEmpty
         ? 'Dernier prix connu : ${formatCurrency(price)}'
@@ -39,42 +45,43 @@ class LastPriceHint extends StatelessWidget {
     final date = lastDate;
 
     return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      margin: const EdgeInsets.only(top: AppSpacing.md),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
+        color: colors.info.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: colors.info.withValues(alpha: 0.30)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.history, size: 17, color: Color(0xFF2563EB)),
-          const SizedBox(width: 8),
+          Icon(Icons.history, size: 17, color: colors.info),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
-                    fontSize: 13,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colors.info,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF1D4ED8),
                   ),
                 ),
                 if (date != null)
                   Text(
                     'le ${DateFormat('dd/MM/yyyy', 'fr_FR').format(date)}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF3B82F6),
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colors.info,
                     ),
                   ),
               ],
             ),
           ),
           if (onUsePrice != null) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: AppSpacing.sm),
             TextButton(
               onPressed: onUsePrice,
               style: TextButton.styleFrom(
