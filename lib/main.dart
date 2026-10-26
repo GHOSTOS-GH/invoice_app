@@ -8,6 +8,7 @@ import 'screens/history_screen.dart';
 import 'screens/stats_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/auth_service.dart';
+import 'services/document_settings_service.dart';
 import 'services/invoice_repository.dart';
 import 'services/product_image_store.dart';
 import 'theme/app_theme.dart';
@@ -22,6 +23,8 @@ void main() async {
   await ProductImageStore.instance.init();
   // Chargement unique de la source de données des factures.
   await InvoiceRepository().load();
+  // Réglages du document de facture (PDF & images).
+  await DocumentSettingsService.instance.loadSettings();
   runApp(const InvoiceApp());
 }
 

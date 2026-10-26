@@ -14,6 +14,7 @@ import '../widgets/ui/app_card.dart';
 import '../widgets/ui/section_header.dart';
 import 'settings/appearance_page.dart';
 import 'settings/backup_page.dart';
+import 'settings/document_page.dart';
 import 'settings/name_history_page.dart';
 import 'settings/products_page.dart';
 import 'settings/receipt_page.dart';
@@ -111,12 +112,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     ];
 
-    const billing = <Widget>[
+    final billing = <Widget>[
       _SettingsTile(
         icon: Icons.picture_as_pdf_outlined,
         title: 'Facture (PDF & images)',
-        subtitle: 'Bientôt disponible (étape 5)',
-        enabled: false,
+        subtitle:
+            'Entreprise, éléments affichés, modèle, QR et images',
+        onTap: () => _open(const DocumentSettingsPage()),
       ),
     ];
 
@@ -248,7 +250,6 @@ class _SettingsTile extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
-  final bool enabled;
 
   const _SettingsTile({
     required this.icon,
@@ -256,18 +257,17 @@ class _SettingsTile extends StatelessWidget {
     required this.subtitle,
     this.onTap,
     this.trailing,
-    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
-    final foreground = enabled ? colors.textStrong : colors.textMuted;
-    final secondary = enabled ? colors.textMuted : colors.textMuted;
+    final foreground = colors.textStrong;
+    final secondary = colors.textMuted;
 
     return InkWell(
-      onTap: enabled ? onTap : null,
+      onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.lg,
@@ -280,15 +280,10 @@ class _SettingsTile extends StatelessWidget {
               height: 40,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: (enabled ? colors.primary : colors.textMuted)
-                    .withValues(alpha: 0.10),
+                color: colors.primary.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                icon,
-                size: 20,
-                color: enabled ? colors.primary : colors.textMuted,
-              ),
+              child: Icon(icon, size: 20, color: colors.primary),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -314,7 +309,7 @@ class _SettingsTile extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.sm),
             if (trailing != null) trailing!,
-            if (enabled && onTap != null)
+            if (onTap != null)
               Icon(Icons.chevron_right, color: colors.textMuted),
           ],
         ),

@@ -6,6 +6,7 @@ export 'app_card.dart';
 export 'app_sheet.dart';
 export 'app_snack.dart';
 export 'app_text_field.dart';
+export 'choice_tile.dart';
 export 'client_avatar.dart';
 export 'empty_state.dart';
 export 'quantity_stepper.dart';

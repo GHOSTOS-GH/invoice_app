@@ -1,4 +1,5 @@
 // lib/screens/invoice_detail_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +7,6 @@ import '../models/invoice.dart';
 import '../models/product.dart';
 import '../services/client_price_index.dart';
 import '../services/invoice_repository.dart';
-import '../services/pdf_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_spacing.dart';
@@ -15,7 +15,7 @@ import '../widgets/last_price_hint.dart';
 import '../widgets/product_grid_sheet.dart';
 import '../widgets/ui/ui.dart';
 import 'new_invoice_screen.dart';
-import 'receipt_preview_screen.dart';
+import 'share_invoice_screen.dart';
 
 class InvoiceDetailScreen extends StatefulWidget {
   final Invoice invoice;
@@ -94,14 +94,12 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
   bool _isEditing = false;
   bool _isSaving = false;
-  bool _isSharing = false;
   late TextEditingController _clientNameController;
   late TextEditingController _notesController;
   late TextEditingController _discountController;
   late TextEditingController _taxRateController;
   final InvoiceRepository _repository = InvoiceRepository();
   final ClientPriceIndex _priceIndex = ClientPriceIndex();
-  final PdfService _pdfService = PdfService();
 
   // Brouillons de l'édition : les valeurs saisies y remontent à chaque frappe,
   // sans toucher à la facture enregistrée.
@@ -661,151 +659,11 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     }
   }
 
-  void _showShareSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.of(context).surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  void _openShare() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ShareInvoiceScreen(invoice: _invoice),
       ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SheetHandle(),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.lg,
-                  vertical: AppSpacing.sm,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Partager la facture',
-                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                ),
-              ),
-              _shareOption(
-                ctx,
-                icon: Icons.print_outlined,
-                tone: _ShareTone.primary,
-                label: 'Reçu thermique (58 / 80 mm)',
-                subtitle: 'Bluetooth (Android) · Wi-Fi (Android + iPhone)',
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ReceiptPreviewScreen(invoice: _invoice),
-                    ),
-                  );
-                },
-              ),
-              _shareOption(
-                ctx,
-                icon: Icons.picture_as_pdf,
-                tone: _ShareTone.danger,
-                label: 'Document PDF',
-                subtitle: 'Idéal pour l\'impression',
-                onTap: () => _shareWith(
-                  ctx,
-                  () => _pdfService.shareAsPdf(_invoice),
-                  'Erreur PDF',
-                ),
-              ),
-              _shareOption(
-                ctx,
-                icon: Icons.image_outlined,
-                tone: _ShareTone.primary,
-                label: 'Image PNG',
-                subtitle: 'Pour partager sur WhatsApp, etc.',
-                onTap: () => _shareWith(
-                  ctx,
-                  () => _pdfService.shareAsPng(_invoice),
-                  'Erreur PNG',
-                ),
-              ),
-              _shareOption(
-                ctx,
-                icon: Icons.photo_camera_outlined,
-                tone: _ShareTone.success,
-                label: 'Image JPG',
-                subtitle: 'Format photo compressé',
-                onTap: () => _shareWith(
-                  ctx,
-                  () => _pdfService.shareAsJpg(_invoice),
-                  'Erreur JPG',
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _shareWith(
-    BuildContext sheetContext,
-    Future<void> Function() action,
-    String errorLabel,
-  ) async {
-    Navigator.pop(sheetContext);
-    setState(() => _isSharing = true);
-    try {
-      await action();
-    } catch (e) {
-      if (!mounted) return;
-      AppSnack.error(context, '$errorLabel : $e');
-    } finally {
-      if (mounted) setState(() => _isSharing = false);
-    }
-  }
-
-  Widget _shareOption(
-    BuildContext ctx, {
-    required IconData icon,
-    required _ShareTone tone,
-    required String label,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    final colors = AppColors.of(ctx);
-    final Color color = switch (tone) {
-      _ShareTone.primary => colors.primary,
-      _ShareTone.success => colors.success,
-      _ShareTone.danger => colors.danger,
-    };
-    return ListTile(
-      minVerticalPadding: AppSpacing.md,
-      leading: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        child: Icon(icon, color: color),
-      ),
-      title: Text(
-        label,
-        style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
-              color: colors.textStrong,
-              fontWeight: FontWeight.w600,
-            ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-              color: colors.textMuted,
-            ),
-      ),
-      onTap: onTap,
     );
   }
 
@@ -1339,17 +1197,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     FilledButton.icon(
-                      onPressed: _isSharing ? null : _showShareSheet,
-                      icon: _isSharing
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: colors.onPrimary,
-                              ),
-                            )
-                          : const Icon(Icons.share_outlined, size: 20),
+                      onPressed: _openShare,
+                      icon: const Icon(Icons.share_outlined, size: 20),
                       label: const Text('Partager'),
                     ),
                   ],
@@ -1359,8 +1208,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     );
   }
 }
-
-enum _ShareTone { primary, success, danger }
 
 class _CompactItemView extends StatelessWidget {
   final int index;

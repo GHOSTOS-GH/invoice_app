@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/invoice.dart';
 import '../models/product.dart';
 import '../utils/constants.dart';
+import 'document_settings_service.dart';
 import 'history_service.dart';
 import 'invoice_repository.dart';
 import 'product_image_store.dart';
@@ -70,7 +71,6 @@ class BackupService {
             documentsDirectory ?? getApplicationDocumentsDirectory;
 
   static const String _backupVersion = '2.0';
-  static const String _documentSettingsKey = 'document_settings';
   static const int _maxSafetyBackups = 3;
 
   final ProductImageStore _imageStore;
@@ -163,6 +163,12 @@ class BackupService {
     final clientNames = await historyService.getClientNames();
     final productNames = await historyService.getProductNames();
     final prefs = await SharedPreferences.getInstance();
+    // Toujours présente : les réglages du document voyagent avec les données
+    // (bruts s'ils existent déjà, sinon les valeurs par défaut).
+    final documentSettings = prefs.getString(Constants.documentSettingsKey) ??
+        jsonEncode(
+          (await DocumentSettingsService.instance.loadSettings()).toJson(),
+        );
 
     final backup = <String, dynamic>{
       'app': 'Gestion de Factures',
@@ -173,8 +179,7 @@ class BackupService {
       'clientNames': clientNames,
       'productNames': productNames,
       'productImages': await _collectProductImages(products),
-      // Vide pour l'instant : emplacement réservé aux paramètres du document.
-      'documentSettings': prefs.getString(_documentSettingsKey),
+      'documentSettings': documentSettings,
     };
 
     final receiptSettings = prefs.getString(Constants.receiptSettingsKey);
@@ -336,7 +341,11 @@ class BackupService {
       await ReceiptSettingsService().loadSettings();
     }
     if (parsed.documentSettings != null) {
-      await prefs.setString(_documentSettingsKey, parsed.documentSettings!);
+      await prefs.setString(
+        Constants.documentSettingsKey,
+        parsed.documentSettings!,
+      );
+      await DocumentSettingsService.instance.loadSettings();
     }
   }
 

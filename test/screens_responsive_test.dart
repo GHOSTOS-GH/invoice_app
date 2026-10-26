@@ -5,8 +5,11 @@
 // - aucun texte sous 12 sp,
 // - des zones tactiles d'au moins 48 dp.
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,6 +22,10 @@ import 'package:invoice_app/screens/login_screen.dart';
 import 'package:invoice_app/screens/new_invoice_screen.dart';
 import 'package:invoice_app/screens/receipt_preview_screen.dart';
 import 'package:invoice_app/screens/settings/appearance_page.dart';
+import 'package:invoice_app/screens/settings/document_page.dart';
+import 'package:invoice_app/screens/share_invoice_screen.dart';
+import 'package:invoice_app/models/document_settings.dart';
+import 'package:invoice_app/services/invoice_image_service.dart';
 import 'package:invoice_app/screens/settings/backup_page.dart';
 import 'package:invoice_app/screens/settings/name_history_page.dart';
 import 'package:invoice_app/screens/settings/products_page.dart';
@@ -89,6 +96,28 @@ Invoice _sampleInvoice() => Invoice(
       discount: 1000,
       taxRate: 5,
     );
+
+/// Rendu d'images factices : ces écrans ne doivent dépendre d'aucun plugin
+/// (la rastérisation réelle exige un appareil).
+class _StubImageRenderer implements InvoiceImageRenderer {
+  static final Uint8List _png = Uint8List.fromList(
+    img.encodePng(img.Image(width: 20, height: 28)),
+  );
+
+  @override
+  Future<InvoiceImageResult> render(
+    Invoice invoice, {
+    DocumentSettings? settings,
+    DocumentImageFormat? imageFormat,
+    InvoiceOutputFormat output = InvoiceOutputFormat.png,
+    int? jpgQuality,
+  }) async =>
+      InvoiceImageResult(
+        pages: [_png],
+        format: imageFormat ?? DocumentImageFormat.a4,
+        forcedA4: false,
+      );
+}
 
 Future<void> _pumpScreen(
   WidgetTester tester,
@@ -335,6 +364,26 @@ void main() {
 
     testWidgets('Paramètres → Reçu thermique', (tester) async {
       await _walk(tester, 'Reçu thermique', const ReceiptSettingsPage());
+    });
+
+    testWidgets('Paramètres → Facture (PDF & images)', (tester) async {
+      await _walk(
+        tester,
+        'Facture (PDF & images)',
+        DocumentSettingsPage(imageService: _StubImageRenderer()),
+      );
+    });
+
+    testWidgets('Partager la facture', (tester) async {
+      await _walk(
+        tester,
+        'Partager la facture',
+        ShareInvoiceScreen(
+          invoice: _sampleInvoice(),
+          imageService: _StubImageRenderer(),
+          settingsLoader: () async => DocumentSettings.defaults(),
+        ),
+      );
     });
 
     testWidgets('Aperçu du reçu', (tester) async {
