@@ -1,8 +1,14 @@
 // lib/screens/login_screen.dart
-// Écran de connexion admin (design moderne)
+// Écran de connexion admin : carte centrée, respiration verticale,
+// erreur inline et champ de mot de passe masquable.
 
 import 'package:flutter/material.dart';
+
 import '../services/auth_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
+import '../widgets/ui/app_text_field.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -16,6 +22,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _usernameFocus = FocusNode();
+  final _passwordFocus = FocusNode();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -25,6 +33,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
@@ -55,171 +65,173 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF2563EB), Color(0xFF1D4ED8), Color(0xFF1E3A8A)],
-            stops: [0.0, 0.55, 1.0],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(28),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.25),
-                        blurRadius: 40,
-                        offset: const Offset(0, 16),
+      backgroundColor: colors.canvas,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xl,
+              vertical: AppSpacing.xxl,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Container(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.lg + 8),
+                  border: Border.all(color: colors.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colors.shadow,
+                      blurRadius: 32,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 76,
+                        height: 76,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [colors.primary, colors.primaryStrong],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(AppRadius.lg),
+                        ),
+                        child: Icon(
+                          Icons.admin_panel_settings,
+                          color: colors.onPrimary,
+                          size: 40,
+                        ),
                       ),
-                    ],
-                  ),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
+                      const SizedBox(height: AppSpacing.xl),
+                      Text(
+                        'Accès Administrateur',
+                        textAlign: TextAlign.center,
+                        style: textTheme.headlineSmall?.copyWith(
+                          color: colors.textStrong,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        'Connexion requise une fois par jour',
+                        textAlign: TextAlign.center,
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: colors.textMuted,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xxl),
+                      AppTextField(
+                        controller: _usernameController,
+                        focusNode: _usernameFocus,
+                        label: 'Identifiant',
+                        icon: Icons.person_outline,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => _passwordFocus.requestFocus(),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Veuillez saisir votre identifiant';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      AppTextField(
+                        controller: _passwordController,
+                        focusNode: _passwordFocus,
+                        label: 'Mot de passe',
+                        icon: Icons.lock_outline,
+                        obscureText: _obscurePassword,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _login(),
+                        suffix: IconButton(
+                          tooltip: _obscurePassword
+                              ? 'Afficher le mot de passe'
+                              : 'Masquer le mot de passe',
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            size: 20,
+                          ),
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Veuillez saisir votre mot de passe';
+                          }
+                          return null;
+                        },
+                      ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: AppSpacing.lg),
                         Container(
-                          width: 84,
-                          height: 84,
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.md,
+                          ),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF2563EB), Color(0xFF1E40AF)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+                            color: colors.danger.withValues(alpha: 0.10),
+                            borderRadius:
+                                BorderRadius.circular(AppRadius.sm),
+                            border: Border.all(
+                              color: colors.danger.withValues(alpha: 0.35),
                             ),
-                            borderRadius: BorderRadius.circular(22),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF2563EB).withValues(alpha: 0.35),
-                                blurRadius: 18,
-                                offset: const Offset(0, 8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 18,
+                                color: colors.danger,
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
+                                child: Text(
+                                  _errorMessage!,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: colors.danger,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                          child: const Icon(
-                            Icons.admin_panel_settings,
-                            color: Colors.white,
-                            size: 46,
-                          ),
-                        ),
-                        const SizedBox(height: 22),
-                        const Text(
-                          'Accès Administrateur',
-                          style: TextStyle(
-                            fontSize: 23,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                            letterSpacing: -0.4,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Connexion requise une fois par jour',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Color(0xFF64748B),
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        TextFormField(
-                          controller: _usernameController,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Identifiant',
-                            prefixIcon: Icon(Icons.person_outline),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Veuillez saisir votre identifiant';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          textInputAction: TextInputAction.done,
-                          onFieldSubmitted: (_) => _login(),
-                          decoration: InputDecoration(
-                            labelText: 'Mot de passe',
-                            prefixIcon: const Icon(Icons.lock_outline),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                                size: 20,
-                              ),
-                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Veuillez saisir votre mot de passe';
-                            }
-                            return null;
-                          },
-                        ),
-                        if (_errorMessage != null) ...[
-                          const SizedBox(height: 16),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFEF2F2),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: const Color(0xFFFECACA)),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error_outline, size: 18, color: Color(0xFFDC2626)),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _errorMessage!,
-                                    style: const TextStyle(fontSize: 13, color: Color(0xFFB91C1C)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _login,
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              backgroundColor: const Color(0xFF2563EB),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            child: _isLoading
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                                  )
-                                : const Text(
-                                    'Se connecter',
-                                    style: TextStyle(fontSize: 16),
-                                  ),
-                          ),
                         ),
                       ],
-                    ),
+                      const SizedBox(height: AppSpacing.xl),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _isLoading ? null : _login,
+                          child: _isLoading
+                              ? SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: colors.onPrimary,
+                                  ),
+                                )
+                              : const Text('Se connecter'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

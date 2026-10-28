@@ -8,36 +8,54 @@ import 'screens/history_screen.dart';
 import 'screens/stats_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/auth_service.dart';
-
-// Palette de l'application (bleu professionnel moderne)
-const Color kPrimary = Color(0xFF2563EB);
-const Color kPrimaryDark = Color(0xFF1D4ED8);
-const Color kInk = Color(0xFF0F172A);
-const Color kInkSoft = Color(0xFF334155);
-const Color kBody = Color(0xFF64748B);
-const Color kMuted = Color(0xFF94A3B8);
-const Color kSurface = Color(0xFFF8FAFC);
-const Color kBorder = Color(0xFFE2E8F0);
-const Color kSuccess = Color(0xFF16A34A);
-const Color kDanger = Color(0xFFDC2626);
+import 'services/document_settings_service.dart';
+import 'services/invoice_repository.dart';
+import 'services/product_image_store.dart';
+import 'theme/app_theme.dart';
+import 'theme/theme_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR', null);
+  // Thème choisi par l'utilisateur (Système / Clair / Sombre).
+  await ThemeController.instance.load();
+  // Dossier durable des images produit + migration des anciens chemins.
+  await ProductImageStore.instance.init();
+  // Chargement unique de la source de données des factures.
+  await InvoiceRepository().load();
+  // Réglages du document de facture (PDF & images).
+  await DocumentSettingsService.instance.loadSettings();
   runApp(const InvoiceApp());
 }
 
-class InvoiceApp extends StatelessWidget {
+class InvoiceApp extends StatefulWidget {
   const InvoiceApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final base = ColorScheme.fromSeed(
-      seedColor: kPrimary,
-      brightness: Brightness.light,
-      surface: Colors.white,
-    );
+  State<InvoiceApp> createState() => _InvoiceAppState();
+}
 
+class _InvoiceAppState extends State<InvoiceApp> {
+  final ThemeController _themeController = ThemeController.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _themeController.addListener(_onThemeChanged);
+  }
+
+  @override
+  void dispose() {
+    _themeController.removeListener(_onThemeChanged);
+    super.dispose();
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Gestion de Factures',
       debugShowCheckedModeBanner: false,
@@ -48,167 +66,9 @@ class InvoiceApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: base,
-        scaffoldBackgroundColor: kSurface,
-        splashFactory: InkSparkle.splashFactory,
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          surfaceTintColor: Colors.transparent,
-          backgroundColor: Colors.white,
-          foregroundColor: kInk,
-          titleTextStyle: TextStyle(
-            color: kInk,
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.4,
-          ),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shadowColor: kPrimary.withValues(alpha: 0.10),
-          surfaceTintColor: Colors.transparent,
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: const BorderSide(color: Color(0xFFEDF1F7)),
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 24),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            backgroundColor: kPrimary,
-            foregroundColor: Colors.white,
-            textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 24),
-            textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 24),
-            side: const BorderSide(color: kPrimary, width: 1.5),
-            foregroundColor: kPrimary,
-            textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          ),
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: kPrimary,
-            textStyle: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ),
-        floatingActionButtonTheme: FloatingActionButtonThemeData(
-          elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          backgroundColor: kPrimary,
-          foregroundColor: Colors.white,
-          extendedPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xFFF4F6FA),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: kBorder),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: kBorder),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: kPrimary, width: 1.8),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: kDanger),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: kDanger, width: 1.8),
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-          labelStyle: const TextStyle(color: kBody, fontSize: 14, fontWeight: FontWeight.w500),
-          hintStyle: TextStyle(color: kMuted.withValues(alpha: 0.9), fontSize: 14),
-          prefixIconColor: kMuted,
-          suffixIconColor: kMuted,
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          elevation: 12,
-          height: 72,
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          indicatorColor: kPrimary.withValues(alpha: 0.12),
-          indicatorShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          labelTextStyle: WidgetStateProperty.resolveWith(
-            (states) {
-              if (states.contains(WidgetState.selected)) {
-                return const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kPrimary);
-              }
-              return const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: kMuted);
-            },
-          ),
-          iconTheme: WidgetStateProperty.resolveWith(
-            (states) {
-              if (states.contains(WidgetState.selected)) {
-                return const IconThemeData(color: kPrimary, size: 25);
-              }
-              return const IconThemeData(color: kMuted, size: 24);
-            },
-          ),
-        ),
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          elevation: 4,
-          backgroundColor: kInk,
-          contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        ),
-        dialogTheme: DialogThemeData(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          titleTextStyle: const TextStyle(color: kInk, fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.3),
-          contentTextStyle: const TextStyle(color: kInkSoft, fontSize: 14, height: 1.4),
-        ),
-        bottomSheetTheme: const BottomSheetThemeData(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-        ),
-        chipTheme: ChipThemeData(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-          side: const BorderSide(color: kBorder),
-          backgroundColor: Colors.white,
-          selectedColor: kPrimary.withValues(alpha: 0.12),
-          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-        ),
-        dividerTheme: const DividerThemeData(space: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-        progressIndicatorTheme: const ProgressIndicatorThemeData(color: kPrimary),
-        listTileTheme: const ListTileThemeData(iconColor: kBody),
-        datePickerTheme: DatePickerThemeData(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          headerBackgroundColor: kPrimary,
-          headerForegroundColor: Colors.white,
-        ),
-      ),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: _themeController.value,
       home: const AuthChecker(),
     );
   }
@@ -246,47 +106,53 @@ class _AuthCheckerState extends State<AuthChecker> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_isAuthenticated) {
-      return const MainScreen();
+      return MainScreen(onLogout: _onLogout);
     } else {
       return LoginScreen(onLoginSuccess: _onLoginSuccess);
     }
   }
 
   void _onLoginSuccess() => setState(() => _isAuthenticated = true);
+
+  void _onLogout() => setState(() => _isAuthenticated = false);
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  /// Appelé après une déconnexion depuis les paramètres.
+  final VoidCallback? onLogout;
+
+  const MainScreen({super.key, this.onLogout});
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
-  final GlobalKey<_HistoryScreenWrapperState> _historyKey = GlobalKey();
 
   void _onInvoiceCreated() {
     setState(() => _currentIndex = 1);
-    _historyKey.currentState?.refresh();
   }
 
-  void _onInvoiceUpdated() => _historyKey.currentState?.refresh();
+  // Les écrans écoutent le repository : aucun rafraîchissement manuel.
+  void _onInvoiceUpdated() {}
 
   @override
   Widget build(BuildContext context) {
     final screens = [
       NewInvoiceScreen(onInvoiceCreated: _onInvoiceCreated),
-      _HistoryScreenWrapper(key: _historyKey, onInvoiceUpdated: _onInvoiceUpdated),
+      HistoryScreen(onInvoiceUpdated: _onInvoiceUpdated),
       const StatsScreen(),
-      SettingsScreen(onDataRestored: _onInvoiceUpdated),
+      SettingsScreen(
+        onDataRestored: _onInvoiceUpdated,
+        onLogout: widget.onLogout,
+      ),
     ];
 
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: screens),
+      body: LazyIndexedStack(index: _currentIndex, children: screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) => setState(() => _currentIndex = index),
-        backgroundColor: Colors.white,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.receipt_outlined),
@@ -314,23 +180,68 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class _HistoryScreenWrapper extends StatefulWidget {
-  final VoidCallback onInvoiceUpdated;
-  const _HistoryScreenWrapper({super.key, required this.onInvoiceUpdated});
+/// IndexedStack paresseux : un onglet n'est construit qu'à sa première visite,
+/// puis reste vivant (Offstage + TickerMode) comme avec un IndexedStack.
+class LazyIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+
+  const LazyIndexedStack({
+    super.key,
+    required this.index,
+    required this.children,
+  });
+
   @override
-  State<_HistoryScreenWrapper> createState() => _HistoryScreenWrapperState();
+  State<LazyIndexedStack> createState() => _LazyIndexedStackState();
 }
 
-class _HistoryScreenWrapperState extends State<_HistoryScreenWrapper> {
-  final GlobalKey<HistoryScreenState> _historyScreenKey = GlobalKey();
+class _LazyIndexedStackState extends State<LazyIndexedStack> {
+  /// Un booléen par onglet : vrai dès qu'il a été construit une première fois.
+  late List<bool> _built;
 
-  void refresh() => _historyScreenKey.currentState?.refreshData();
+  @override
+  void initState() {
+    super.initState();
+    _built = List<bool>.filled(widget.children.length, false);
+    _markBuilt(widget.index);
+  }
+
+  @override
+  void didUpdateWidget(covariant LazyIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.children.length != widget.children.length) {
+      final previous = _built;
+      _built = List<bool>.filled(widget.children.length, false);
+      for (var i = 0; i < previous.length && i < _built.length; i++) {
+        _built[i] = previous[i];
+      }
+    }
+    _markBuilt(widget.index);
+  }
+
+  void _markBuilt(int index) {
+    if (index >= 0 && index < _built.length) _built[index] = true;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return HistoryScreen(
-      key: _historyScreenKey,
-      onInvoiceUpdated: widget.onInvoiceUpdated,
+    if (widget.children.isEmpty) return const SizedBox.shrink();
+    final index = widget.index.clamp(0, widget.children.length - 1);
+    _markBuilt(index);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (var i = 0; i < widget.children.length; i++)
+          if (_built[i])
+            Offstage(
+              offstage: i != index,
+              child: TickerMode(
+                enabled: i == index,
+                child: widget.children[i],
+              ),
+            ),
+      ],
     );
   }
 }

@@ -7,7 +7,11 @@ import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
 
 import '../services/bluetooth_printer_service.dart';
-import '../utils/constants.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
+import 'ui/app_snack.dart';
+import 'ui/sheet_handle.dart';
 
 /// Ouvre la feuille de sélection de l'imprimante Bluetooth.
 /// Retourne l'appareil sélectionné (et connecté), ou null si annulé.
@@ -15,12 +19,15 @@ Future<BluetoothDevice?> showBluetoothDeviceSheet(
   BuildContext context,
   BluetoothPrinterService service,
 ) {
+  final colors = AppColors.of(context);
   return showModalBottomSheet<BluetoothDevice>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
+    backgroundColor: colors.surface,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(AppRadius.lg),
+      ),
     ),
     builder: (ctx) => _BluetoothDeviceSheet(service: service),
   );
@@ -111,19 +118,11 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
 
   void _showSnack(String message, {String? action, VoidCallback? onAction}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        action: action != null
-            ? SnackBarAction(
-                label: action,
-                textColor: Colors.white,
-                onPressed: onAction ?? () {},
-              )
-            : null,
-      ),
+    AppSnack.error(
+      context,
+      message,
+      actionLabel: action,
+      onAction: onAction,
     );
   }
 
@@ -141,13 +140,7 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
         Navigator.pop(context, device);
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Connexion impossible. Vérifiez l'imprimante."),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showSnack("Connexion impossible. Vérifiez l'imprimante.");
       }
     } on BluetoothPermissionDeniedException catch (e) {
       _showSnack(e.message, action: 'Réglages', onAction: () {
@@ -165,6 +158,7 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
@@ -173,27 +167,21 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
+            const SheetHandle(),
+            Text(
               'Imprimante Bluetooth',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colors.textStrong,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: AppSpacing.xs),
             Text(
               'ESC/POS · 58 mm / 80 mm',
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 12, color: colors.textMuted),
             ),
-            const SizedBox(height: 12),
-            const Divider(height: 1),
+            const SizedBox(height: AppSpacing.md),
+            Divider(height: 1, color: colors.border),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -202,18 +190,21 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
   }
 
   Widget _buildBody() {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
     if (!widget.service.isSupported) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
+      return Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.bluetooth_disabled, size: 56, color: Colors.grey),
-            SizedBox(height: 12),
+            Icon(Icons.bluetooth_disabled, size: 56, color: colors.textMuted),
+            const SizedBox(height: AppSpacing.md),
             Text(
               "L'impression Bluetooth n'est disponible que sur Android.",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey),
+              style: TextStyle(fontSize: 14, color: colors.textMuted),
             ),
           ],
         ),
@@ -223,32 +214,39 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
     // Permission Bluetooth refusée : état dédié avec accès aux réglages.
     if (_permissionDenied) {
       return Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.bluetooth_searching,
-                size: 56, color: Color(0xFFF59E0B)),
-            const SizedBox(height: 12),
-            const Text(
-              "Permissions Bluetooth refusées",
+            Icon(Icons.bluetooth_searching, size: 56, color: colors.warning),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Permissions Bluetooth refusées',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              style: textTheme.titleSmall?.copyWith(
+                color: colors.textStrong,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
-              "Autorisez l'accès aux « Appareils à proximité » dans les réglages de l'application pour lister vos imprimantes appairées.",
+              "Autorisez l'accès aux « Appareils à proximité » dans les "
+              "réglages de l'application pour lister vos imprimantes "
+              "appairées.",
               textAlign: TextAlign.center,
-              style:
-                  TextStyle(fontSize: 13, color: Colors.grey[600], height: 1.4),
+              style: TextStyle(
+                fontSize: 13,
+                color: colors.textMuted,
+                height: 1.4,
+              ),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
+            const SizedBox(height: AppSpacing.lg),
+            FilledButton.icon(
               onPressed: () async {
                 await widget.service.openAppSettingsPage();
                 _load();
               },
-              icon: const Icon(Icons.settings),
+              icon: const Icon(Icons.settings, size: 18),
               label: const Text('Ouvrir les réglages'),
             ),
           ],
@@ -257,22 +255,22 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
         // État Bluetooth
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(Constants.cardRadius),
+            color: colors.surfaceAlt,
+            borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Row(
             children: [
               Icon(
                 _btOn ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                color: _btOn ? const Color(0xFF2563EB) : Colors.grey,
+                color: _btOn ? colors.primary : colors.textMuted,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -281,8 +279,8 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
                       _btAvailable
                           ? (_btOn ? 'Bluetooth activé' : 'Bluetooth désactivé')
                           : 'Bluetooth indisponible',
-                      style: const TextStyle(
-                        fontSize: 14,
+                      style: textTheme.titleSmall?.copyWith(
+                        color: colors.textStrong,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -290,8 +288,9 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
                     Text(
                       _btOn
                           ? 'Sélectionnez votre imprimante ci-dessous'
-                          : "Activez le Bluetooth puis appairez l'imprimante dans les réglages Android.",
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          : "Activez le Bluetooth puis appairez l'imprimante "
+                              'dans les réglages Android.',
+                      style: TextStyle(fontSize: 12, color: colors.textMuted),
                     ),
                   ],
                 ),
@@ -308,20 +307,21 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
           ),
         ),
         if (_connected) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                'Imprimante connectée',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.green[700],
+              Icon(Icons.check_circle, color: colors.success, size: 18),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Imprimante connectée',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: colors.success,
+                  ),
                 ),
               ),
-              const Spacer(),
               TextButton(
                 onPressed: () async {
                   await widget.service.disconnect();
@@ -332,32 +332,36 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
             ],
           ),
         ],
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.lg),
         Text(
           'Imprimantes appairées (${_devices.length})',
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          style: textTheme.titleSmall?.copyWith(
+            color: colors.textStrong,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.sm),
         if (_loading)
           const Padding(
-            padding: EdgeInsets.all(24),
+            padding: EdgeInsets.all(AppSpacing.xl),
             child: Center(child: CircularProgressIndicator()),
           )
         else if (_devices.isEmpty)
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              borderRadius: BorderRadius.circular(Constants.cardRadius),
+              border: Border.all(color: colors.border),
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Column(
               children: [
-                Icon(Icons.print_disabled, size: 40, color: Colors.grey[400]),
-                const SizedBox(height: 8),
+                Icon(Icons.print_disabled, size: 40, color: colors.textMuted),
+                const SizedBox(height: AppSpacing.sm),
                 Text(
-                  "Aucune imprimante appairée.\nAppairez-la depuis les réglages Bluetooth d'Android, puis revenez ici.",
+                  "Aucune imprimante appairée.\nAppairez-la depuis les "
+                  "réglages Bluetooth d'Android, puis revenez ici.",
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 13, color: colors.textMuted),
                 ),
               ],
             ),
@@ -365,51 +369,53 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
         else
           ..._devices.map(
             (device) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: Material(
                 color: _defaultMac == device.address
-                    ? const Color(0xFF2563EB).withValues(alpha: 0.08)
-                    : const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(14),
+                    ? colors.primary.withValues(alpha: 0.08)
+                    : colors.surfaceAlt,
+                borderRadius: BorderRadius.circular(AppRadius.md),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   onTap: _connecting ? null : () => _select(device),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.md,
+                    ),
                     child: Row(
                       children: [
                         Container(
                           width: 40,
                           height: 40,
+                          alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color:
-                                const Color(0xFF2563EB).withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
+                            color: colors.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.print,
-                            color: Color(0xFF2563EB),
+                            color: colors.primary,
                             size: 22,
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: AppSpacing.md),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 device.name ?? 'Imprimante',
-                                style: const TextStyle(
-                                  fontSize: 14,
+                                style: textTheme.titleSmall?.copyWith(
+                                  color: colors.textStrong,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                               Text(
                                 device.address ?? '',
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[500],
+                                  fontSize: 12,
+                                  color: colors.textMuted,
                                 ),
                               ),
                             ],
@@ -418,21 +424,23 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
                         if (_defaultMac == device.address)
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2563EB),
-                              borderRadius: BorderRadius.circular(8),
+                              horizontal: AppSpacing.sm,
+                              vertical: 3,
                             ),
-                            child: const Text(
+                            decoration: BoxDecoration(
+                              color: colors.primary,
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                            child: Text(
                               'Défaut',
                               style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
+                                color: colors.onPrimary,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: AppSpacing.sm),
                         if (_connecting)
                           const SizedBox(
                             width: 18,
@@ -440,7 +448,10 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         else
-                          Icon(Icons.chevron_right, color: Colors.grey[400]),
+                          Icon(
+                            Icons.chevron_right,
+                            color: colors.textMuted,
+                          ),
                       ],
                     ),
                   ),
@@ -448,10 +459,11 @@ class _BluetoothDeviceSheetState extends State<_BluetoothDeviceSheet> {
               ),
             ),
           ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.sm),
         Text(
-          'Astuce : touchez une imprimante pour vous y connecter et la définir comme imprimante par défaut.',
-          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+          'Astuce : touchez une imprimante pour vous y connecter et la '
+          'définir comme imprimante par défaut.',
+          style: TextStyle(fontSize: 12, color: colors.textMuted),
         ),
       ],
     );

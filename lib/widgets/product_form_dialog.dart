@@ -1,19 +1,65 @@
 // lib/widgets/product_form_dialog.dart
+// Formulaire produit : même contenu pour le dialogue et la feuille modale.
+// La compression d'image reste déportée dans un isolate via compute().
 
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
+
 import '../models/product.dart';
+import '../services/product_image_store.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
+import 'ui/app_sheet.dart';
+import 'ui/app_snack.dart';
+
+/// Ouvre le formulaire produit en feuille modale (usage principal).
+Future<void> showProductFormSheet({
+  required BuildContext context,
+  Product? product,
+  required Future<void> Function(Product) onSave,
+}) {
+  return showAppSheet<void>(
+    context: context,
+    maxHeightFactor: 0.9,
+    builder: (_) => ProductFormDialog(product: product, onSave: onSave),
+  );
+}
+
+/// Ouvre le formulaire produit dans un dialogue (écrans denses).
+Future<void> showProductFormDialog({
+  required BuildContext context,
+  Product? product,
+  required Future<void> Function(Product) onSave,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => ProductFormDialog(
+      product: product,
+      onSave: onSave,
+      embedded: false,
+    ),
+  );
+}
 
 class ProductFormDialog extends StatefulWidget {
   final Product? product;
-  final Function(Product) onSave;
+  final Future<void> Function(Product) onSave;
 
-  const ProductFormDialog({super.key, this.product, required this.onSave});
+  /// Vrai (par défaut) quand le formulaire est déjà placé dans une feuille.
+  final bool embedded;
+
+  const ProductFormDialog({
+    super.key,
+    this.product,
+    required this.onSave,
+    this.embedded = true,
+  });
 
   @override
   State<ProductFormDialog> createState() => _ProductFormDialogState();
@@ -53,31 +99,38 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       imageQuality: 75,
     );
     if (!mounted) return;
-    if (image != null) {
-      final originalFile = File(image.path);
-      final originalSize = await originalFile.length();
-      if (!mounted) return;
+    if (image == null) return;
 
-      // Compression supplémentaire avec le package image
-      final compressedPath = await _compressImage(image.path);
-      if (!mounted) return;
+    final originalFile = File(image.path);
+    final originalSize = await originalFile.length();
+    if (!mounted) return;
 
-      if (compressedPath != null) {
-        final compressedFile = File(compressedPath);
-        final compressedSize = await compressedFile.length();
-        if (!mounted) return;
-        setState(() {
-          _imagePath = compressedPath;
-          _originalFileSize = originalSize;
-          _compressedFileSize = compressedSize;
-        });
-      } else {
-        setState(() {
-          _imagePath = image.path;
-          _originalFileSize = originalSize;
-          _compressedFileSize = originalSize;
-        });
-      }
+    // Compression supplémentaire avec le package image
+    final compressedPath = await _compressImage(image.path);
+    if (!mounted) return;
+
+    if (compressedPath != null) {
+      final compressedFile = File(compressedPath);
+      final compressedSize = await compressedFile.length();
+      if (!mounted) return;
+      // Copie durable : seul le NOM du fichier est conservé dans le produit.
+      final storedName =
+          await ProductImageStore.instance.importFile(compressedFile);
+      if (!mounted) return;
+      setState(() {
+        _imagePath = storedName;
+        _originalFileSize = originalSize;
+        _compressedFileSize = compressedSize;
+      });
+    } else {
+      final storedName =
+          await ProductImageStore.instance.importFile(File(image.path));
+      if (!mounted) return;
+      setState(() {
+        _imagePath = storedName;
+        _originalFileSize = originalSize;
+        _compressedFileSize = originalSize;
+      });
     }
   }
 
@@ -87,8 +140,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       final originalBytes = await originalFile.readAsBytes();
       // Décodage, redimensionnement et encodage JPEG déportés sur un
       // isolate via compute() : ces opérations sont coûteuses et
-      // bloquaient le thread UI (même classe de bug que le logo du reçu,
-      // déjà corrigé dans ReceiptBuilder).
+      // bloquaient le thread UI.
       final compressedBytes = await compute(
         _compressImageIsolate,
         (originalBytes, 800),
@@ -98,8 +150,10 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
       // Sauvegarder avec un nouveau nom
       final dir = originalFile.parent;
-      final fileName = 'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final compressedFile = File('${dir.path}${Platform.pathSeparator}$fileName');
+      final fileName =
+          'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final compressedFile =
+          File('${dir.path}${Platform.pathSeparator}$fileName');
       await compressedFile.writeAsBytes(compressedBytes);
 
       return compressedFile.path;
@@ -139,7 +193,9 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
   String _formatFileSize(int bytes) {
     if (bytes < 1024) return '$bytes o';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} Ko';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} Ko';
+    }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} Mo';
   }
 
@@ -147,131 +203,221 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     final name = _nameController.text.trim();
     final category = _categoryController.text.trim();
     if (name.isEmpty || category.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nom et catégorie requis')),
-      );
+      AppSnack.info(context, 'Nom et catégorie requis');
       return;
     }
 
     setState(() => _isLoading = true);
 
+    final previousImagePath = widget.product?.imagePath;
     final product = Product(
-      id: widget.product?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      id: widget.product?.id ??
+          DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
       category: category,
       imagePath: _imagePath,
     );
 
-    widget.onSave(product);
+    // L'ancienne image est supprimée seulement si elle a été remplacée.
+    if (previousImagePath != null && previousImagePath != _imagePath) {
+      await ProductImageStore.instance.deleteIfManaged(previousImagePath);
+    }
+    if (!mounted) return;
+
+    await widget.onSave(product);
+    if (!mounted) return;
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.product == null ? 'Nouveau produit' : 'Modifier le produit'),
-      content: SingleChildScrollView(
+    if (!widget.embedded) {
+      return Dialog(
+        insetPadding: const EdgeInsets.all(AppSpacing.xl),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: _buildBody(context, withHeader: true),
+        ),
+      );
+    }
+    return _buildBody(context, withHeader: true);
+  }
+
+  Widget _buildBody(BuildContext context, {required bool withHeader}) {
+    final colors = AppColors.of(context);
+    final imageFile = ProductImageStore.instance.resolve(_imagePath);
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.sm,
+          AppSpacing.lg,
+          AppSpacing.lg,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            GestureDetector(
-              onTap: _pickImage,
-              child: Stack(
+            if (withHeader) ...[
+              Row(
                 children: [
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.grey[300]!),
+                  Expanded(
+                    child: Text(
+                      widget.product == null
+                          ? 'Nouveau produit'
+                          : 'Modifier le produit',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: colors.textStrong,
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
-                    child: _imagePath != null
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: Image.file(File(_imagePath!), fit: BoxFit.cover),
-                          )
-                        : const Icon(Icons.add_photo_alternate_outlined, size: 44, color: Colors.grey),
                   ),
-                  if (_imagePath != null)
-                    Positioned(
-                      right: 4,
-                      top: 4,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2563EB),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.edit, size: 14, color: Colors.white),
-                      ),
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    tooltip: 'Fermer',
+                    onPressed: () => Navigator.pop(context),
+                  ),
                 ],
               ),
-            ),
-            if (_originalFileSize != null && _compressedFileSize != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFBBF7D0)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: AppSpacing.sm),
+            ],
+            Center(
+              child: InkWell(
+                onTap: _pickImage,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                child: Stack(
                   children: [
-                    const Icon(Icons.compress, size: 14, color: Color(0xFF16A34A)),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${_formatFileSize(_originalFileSize!)} → ${_formatFileSize(_compressedFileSize!)}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF16A34A), fontWeight: FontWeight.w600),
+                    Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: colors.surfaceAlt,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: colors.border),
+                      ),
+                      child: imageFile != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              child: Image.file(
+                                imageFile,
+                                fit: BoxFit.cover,
+                                cacheWidth: 300,
+                                errorBuilder: (_, __, ___) => Icon(
+                                  Icons.add_photo_alternate_outlined,
+                                  size: 44,
+                                  color: colors.textMuted,
+                                ),
+                              ),
+                            )
+                          : Icon(
+                              Icons.add_photo_alternate_outlined,
+                              size: 44,
+                              color: colors.textMuted,
+                            ),
                     ),
+                    if (_imagePath != null)
+                      Positioned(
+                        right: 4,
+                        top: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: colors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.edit,
+                              size: 14, color: colors.onPrimary),
+                        ),
+                      ),
                   ],
                 ),
               ),
+            ),
+            if (_originalFileSize != null && _compressedFileSize != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.success.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(
+                      color: colors.success.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.compress, size: 14, color: colors.success),
+                      const SizedBox(width: AppSpacing.xs),
+                      Text(
+                        '${_formatFileSize(_originalFileSize!)} → '
+                        '${_formatFileSize(_compressedFileSize!)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colors.success,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             TextField(
               controller: _nameController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'Nom du produit',
-                prefixIcon: const Icon(Icons.label, size: 20, color: Color(0xFF2563EB)),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                filled: true,
-                fillColor: const Color(0xFFF1F5F9),
+                prefixIcon: Icon(Icons.label_outline, size: 20),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: _categoryController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'Catégorie (ex: Boissons, Snacks)',
-                prefixIcon: const Icon(Icons.category, size: 20, color: Color(0xFF2563EB)),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                filled: true,
-                fillColor: const Color(0xFFF1F5F9),
+                prefixIcon: Icon(Icons.category_outlined, size: 20),
               ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Annuler'),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton(
+                    onPressed: _isLoading ? null : _save,
+                    child: _isLoading
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colors.onPrimary,
+                            ),
+                          )
+                        : const Text('Enregistrer'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Annuler'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _save,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF2563EB),
-            foregroundColor: Colors.white,
-          ),
-          child: _isLoading
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Text('Enregistrer'),
-        ),
-      ],
     );
   }
 }

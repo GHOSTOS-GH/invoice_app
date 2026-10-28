@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/invoice.dart';
 import '../utils/constants.dart';
+import '../utils/text_utils.dart';
+import 'client_price_index.dart';
 
 class StorageService {
   // ---------- Factures ----------
@@ -72,30 +74,16 @@ class StorageService {
   // ---------- Prix historiques (dernier prix par client / produit) ----------
 
   /// Retourne le dernier prix unitaire du [productName] vendu à [clientName].
-  /// Les prix variant selon les clients, on recherche dans les factures
-  /// du client en partant de la plus récente. Retourne null si aucun historique.
-  Future<double?> getLastPriceForClientProduct(String clientName, String productName) async {
+  /// Délègue à [ClientPriceIndex] (compatibilité de l'ancienne API).
+  Future<int?> getLastPriceForClientProduct(
+      String clientName, String productName) async {
     final map = await getClientPriceMap(clientName);
-    return map[productName.trim().toLowerCase()];
+    return map[normalizeKey(productName)];
   }
 
-  /// Retourne la map { nomProduit(minuscule) -> dernierPrixUnitaire } pour le client.
-  /// La facture la plus récente du client fait foi pour chaque produit.
-  Future<Map<String, double>> getClientPriceMap(String clientName) async {
-    final result = <String, double>{};
-    final name = clientName.trim();
-    if (name.isEmpty) return result;
-
-    final invoices = await loadInvoices();
-    final sorted = List<Invoice>.from(invoices)
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-    for (final inv in sorted) {
-      if (inv.clientName.trim().toLowerCase() != name.toLowerCase()) continue;
-      for (final item in inv.items) {
-        result.putIfAbsent(item.name.trim().toLowerCase(), () => item.unitPrice);
-      }
-    }
-    return result;
+  /// Retourne la map { clé produit normalisée -> dernierPrixUnitaire } pour
+  /// le client. Délègue à [ClientPriceIndex] (compatibilité).
+  Future<Map<String, int>> getClientPriceMap(String clientName) async {
+    return ClientPriceIndex().pricesForClient(clientName);
   }
 }

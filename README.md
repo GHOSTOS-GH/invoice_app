@@ -2,20 +2,54 @@
 
 Une application mobile moderne et élégante pour créer, gérer, suivre et partager vos factures, développée avec Flutter et Dart.
 
+## 📌 Règles du projet
+
+Les règles permanentes (stockage, montants, impression, qualité de code) sont
+consignées dans [`CLAUDE.md`](CLAUDE.md) — copie identique dans [`AGENTS.md`](AGENTS.md).
+Elles s'appliquent à toute évolution du projet.
+
+Points clés :
+
+- **Montants FCFA : toujours des entiers (`int`).** Aucun décimal dans les calculs, la
+  saisie, l'affichage ou les exports ; les arrondis se font avec `.round()`.
+  Seule exception : `taxRate` (pourcentage).
+- **Un seul total de référence :** `Invoice.payableTotal`
+  (= sous-total − remise appliquée + TVA). Il est utilisé dans les écrans,
+  l'historique, les statistiques, le PDF, le reçu thermique et le CSV.
+- **Rétro-compatibilité obligatoire** : les anciens JSON (prix `99.99`, remise `10.5`…)
+  restent lisibles et sont arrondis au chargement.
+- **Clés `SharedPreferences` figées** : `invoices`, `draft_invoice`, `last_login_date`,
+  `receipt_settings`, `default_printer_mac`, `default_printer_ip`,
+  `history_client_names`, `history_product_names`, `products`.
+- **Interdits** : changer l'`applicationId`, la signature, la logique d'impression
+  Bluetooth/Wi-Fi et les permissions du manifest.
+
+L'état de référence du projet (versions, `flutter analyze`, `flutter test`) est dans
+[`docs/BASELINE.md`](docs/BASELINE.md).
+
 ## ✨ Fonctionnalités
+
+### 🧭 Vue d'ensemble de la refonte
+- **Montants en FCFA entiers** : aucun décimal dans les calculs, l'affichage et les exports (arrondi `.round()`)
+- **Réglages PDF et images** : logo, infos boutique, éléments affichés, style (3 modèles), couleur d'accent, format image (A4 / long WhatsApp), QR code, filigrane, pied de page — tous activables/désactivables dans Paramètres → Facture (PDF & images)
+- **Mode sombre** : Système / Clair / Sombre, réglable dans Paramètres → Apparence
+- **Sécurité** : identifiant et code modifiables dans l'application, stockage haché (sel + SHA-256)
+- **Sauvegarde v2** : inclut les images produits (base64) et les réglages de facture ; rétro-compatible avec les sauvegardes v1
+- **Refonte UI/UX complète** : design system Inter, thème Material 3 clair/sombre, widgets harmonisés, tous les écrans revus
 
 ### 🆕 Création de facture
 - Nom du client avec **autocomplétion** basée sur l'historique
 - Ajout illimité d'articles depuis la **bibliothèque produits** (photos, catégories)
-- Quantité (obligatoire) + prix unitaire en FCFA
+- Quantité et prix unitaire **obligatoires**, en **entiers FCFA** (clavier numérique, chiffres uniquement) : une saisie vide ou nulle affiche l'erreur sous le champ et n'ajoute pas l'article (aucun prix par défaut n'est inventé)
 - **Prix intelligent par client** : le dernier prix vendu à ce client précis est pré-rempli automatiquement et affiché dans un encart contextuel (les prix peuvent varier selon les clients)
 - Brouillon automatique : la facture en cours est sauvegardée même si on quitte l'application
-- Total à payer et compteur d'articles mis à jour en temps réel
+- Total à payer (`payableTotal`) et compteur d'articles mis à jour en temps réel
 - Finalisation en un clic
 
 ### 📝 Édition des factures (détails)
-- Modification du client, du **statut** (dropdown) et des **notes**
-- **Ajout d'articles via la bibliothèque produits** (pas de saisie manuelle, même prix intelligent par client)
+- Modification du client, du **statut** (dropdown), des **notes**, de la **remise** (FCFA) et de la **TVA** (%) — toutes deux en entiers ; une remise supérieure au sous-total est refusée avec un message sous le champ
+- **Détail du total** (sous-total, remise, TVA) affiché uniquement si une remise ou une TVA est renseignée, puis **TOTAL À PAYER**
+- **Ajout d'articles via la bibliothèque produits** (pas de saisie manuelle, même prix intelligent par client, mêmes règles de saisie entière)
 - Édition/suppression d'articles **sans mélange des valeurs**, même après plusieurs suppressions
 - Duplication de facture, archivage/désarchivage, suppression
 - Partage direct : PDF, PNG ou JPG
@@ -40,6 +74,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 
 ### 📄 Export professionnel (PDF / PNG / JPG)
 - Document PDF au design moderne (en-tête, tableau, total en dégradé, notes, pied de page)
+- **Bloc total** : sous-total, remise, TVA et **TOTAL À PAYER** quand une remise ou une TVA existe ; sinon un simple `TOTAL`, comme avant
 - **Filigrane du logo** (assets/watermark/logo.png) sur toutes les factures générées
 - Export en image PNG ou JPG (idéal pour WhatsApp)
 - Partage natif direct depuis l'application
@@ -59,7 +94,7 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 - Identifiants par défaut : `Admin` / `0000` (modifiables dans `lib/utils/constants.dart`)
 
 ### 💾 Sauvegarde & export des données
-- **Export CSV** : toutes les factures (une ligne par article), séparateur `;` compatible Excel FR et BOM UTF-8 pour les accents
+- **Export CSV** : toutes les factures (une ligne par article), séparateur `;` compatible Excel FR et BOM UTF-8 pour les accents ; 13 colonnes dont les totaux de facture et les notes, remplis **uniquement sur la première ligne** de chaque facture pour ne pas fausser les sommes du tableur
 - **Sauvegarde complète (JSON)** : factures, produits et historiques d'autocomplétion dans un seul fichier
 - **Restauration** : sélection d'un fichier `.json`, aperçu du contenu (factures, produits, clients) avec confirmation avant remplacement
 - **Export CSV de la sélection filtrée** directement dans l'historique (période + statut + recherche combinés), avec total affiché par période
@@ -90,16 +125,33 @@ Une application mobile moderne et élégante pour créer, gérer, suivre et part
 lib/
 ├── main.dart                          # Point d'entrée, thème et navigation
 ├── models/
-│   ├── invoice.dart                   # Invoice, InvoiceItem, InvoiceStatus
+│   ├── invoice.dart                   # Invoice, InvoiceItem, InvoiceStatus (+ payableTotal)
 │   ├── product.dart                   # Produit de la bibliothèque
+│   ├── document_settings.dart         # Réglages PDF / images (logo, éléments, style, QR…)
 │   └── receipt_settings.dart          # Paramètres du reçu thermique (ESC/POS)
+├── theme/                             # Design system : couleurs, typo, espacements, rayons, thème
+│   ├── app_colors.dart                # Jetons de couleur clair / sombre
+│   ├── app_typography.dart            # Échelle typographique Inter
+│   ├── app_spacing.dart               # Espacements
+│   ├── app_radius.dart                # Rayons
+│   ├── app_theme.dart                 # ThemeData Material 3 clair / sombre
+│   └── theme_controller.dart          # Système / Clair / Sombre (persisté)
 ├── services/
+│   ├── invoice_repository.dart        # Source de données unique en mémoire (factures)
+│   ├── client_price_index.dart        # Index des derniers prix par client
+│   ├── document_settings_service.dart # Persistance des réglages PDF et images
+│   ├── invoice_image_service.dart     # Rastérisation PDF → PNG / JPG (isolates)
+│   ├── product_image_store.dart       # Stockage durable des photos produits + migration
 │   ├── storage_service.dart           # Persistance + prix historiques par client
 │   ├── history_service.dart           # Autocomplétion clients/articles
 │   ├── product_service.dart           # Bibliothèque produits
-│   ├── pdf_service.dart               # Génération PDF/PNG/JPG + filigrane
-│   ├── backup_service.dart            # Export CSV + sauvegarde/restauration JSON
-│   ├── auth_service.dart              # Authentification journalière
+│   ├── pdf/                           # Moteur PDF
+│   │   ├── invoice_pdf_builder.dart   # InvoicePdfBuilder (MultiPage, 3 modèles)
+│   │   ├── pdf_assets.dart            # PdfAssets (polices, logo)
+│   │   └── pdf_palette.dart           # PdfPalette (couleur d'accent)
+│   ├── pdf_service.dart               # Façade PDF / images + partage
+│   ├── backup_service.dart            # Export CSV + sauvegarde/restauration JSON (v2)
+│   ├── auth_service.dart              # Authentification journalière (code haché)
 │   ├── receipt_builder.dart           # Construction du reçu ESC/POS (même plan pour l'aperçu, tableau à règles métier fixes : nom 10 / qté 4 / prix 8, identiques en 58 et 80 mm)
 │   ├── receipt_printer_common.dart    # Préparation commune des octets ESC/POS
 │   ├── receipt_settings_service.dart  # Persistance des paramètres du reçu + imprimante par défaut
@@ -109,14 +161,34 @@ lib/
 │   ├── new_invoice_screen.dart        # Création de facture
 │   ├── history_screen.dart            # Historique + filtres + période
 │   ├── invoice_detail_screen.dart     # Détails et édition
+│   ├── share_invoice_screen.dart      # Aperçu et partage PDF / PNG / JPG
 │   ├── receipt_preview_screen.dart    # Aperçu du reçu + envoi Bluetooth / Wi-Fi
 │   ├── stats_screen.dart              # Statistiques
-│   ├── settings_screen.dart           # Paramètres (clients, articles, produits, sauvegarde, reçu)
+│   ├── settings_screen.dart           # Paramètres (catalogue, facturation, impression, données, application)
+│   ├── settings/                      # Sous-pages des paramètres
+│   │   ├── appearance_page.dart       # Thème Système / Clair / Sombre
+│   │   ├── backup_page.dart           # Export CSV, sauvegarde / restauration JSON
+│   │   ├── document_page.dart         # Facture (PDF & images)
+│   │   ├── name_history_page.dart     # Clients / historique des articles
+│   │   ├── products_page.dart         # Bibliothèque produits
+│   │   ├── receipt_page.dart          # Reçu thermique
+│   │   └── security_page.dart         # Identifiant, code, déconnexion
 │   └── login_screen.dart              # Connexion admin
 ├── utils/
 │   ├── constants.dart                 # Clés, identifiants, tailles
-│   └── formatters.dart                # Formatage FCFA
+│   └── formatters.dart                # formatNumber / formatCurrency (entiers, insécable par défaut)
 └── widgets/
+    ├── ui/                            # Widgets réutilisables du design system
+    │   ├── app_card.dart              # AppCard
+    │   ├── status_badge.dart          # StatusBadge
+    │   ├── amount_text.dart           # AmountText
+    │   ├── app_text_field.dart        # AppTextField
+    │   ├── app_sheet.dart             # AppSheet
+    │   ├── app_snack.dart             # AppSnack
+    │   ├── choice_tile.dart / section_header.dart / sheet_handle.dart
+    │   ├── client_avatar.dart / empty_state.dart
+    │   ├── quantity_stepper.dart / status_stepper.dart
+    │   └── sticky_total_bar.dart
     ├── last_price_hint.dart           # Encart « dernier prix par client »
     ├── product_grid_sheet.dart        # Grille de sélection de produits
     ├── product_form_dialog.dart       # Formulaire produit (photo)
@@ -124,8 +196,7 @@ lib/
     ├── receipt_settings_tab.dart      # Onglet « Reçu » des paramètres
     ├── bluetooth_device_sheet.dart    # Sélection / connexion imprimante Bluetooth
     ├── network_printer_sheet.dart     # Configuration imprimante Wi-Fi (IP + test)
-    ├── skeleton_loader.dart           # Squelettes de chargement
-    └── item_form_dialog.dart          # (conservé pour compatibilité)
+    └── skeleton_loader.dart           # Squelettes de chargement
 ```
 
 ## 📦 Dépendances
@@ -145,6 +216,13 @@ lib/
 - **permission_handler** : Permissions runtime (Bluetooth Android 12+, etc.)
 - **qr_flutter** : QR code de la facture sur le reçu thermique
 - **flutter_launcher_icons** : Génération des icônes de lancement
+
+## 🗂️ Étapes de refonte
+
+| Étape | Branche | Contenu |
+|---|---|---|
+| P0 | `refonte/p0-regles` (tag `pre-refonte`) | Règles permanentes (`CLAUDE.md` / `AGENTS.md`) et état de référence (`docs/BASELINE.md`) |
+| P1 | `refonte/p1-argent` | Montants 100 % entiers FCFA, `payableTotal` unifié partout, CSV enrichi, formatters réécrits |
 
 ## 🚀 Installation et lancement
 
@@ -173,7 +251,11 @@ Les **prix historiques par client** sont dérivés automatiquement des factures 
 ### Format du CSV exporté
 
 Une ligne par article, avec les colonnes suivantes :
-`Date;Réf;Client;Statut;Article;Quantité;Prix unitaire;Sous-total;Total facture;Notes`
+`Date;Réf;Client;Statut;Article;Quantité;Prix unitaire;Sous-total article;Sous-total facture;Remise;TVA;Total à payer;Notes`
+
+Les totaux de la facture (sous-total, remise, TVA, total à payer) et les notes ne sont
+remplis que sur la **première ligne** de chaque facture, pour que les sommes du tableur
+ne comptent pas plusieurs fois le même montant.
 
 ### Format de sauvegarde (JSON)
 
@@ -182,12 +264,15 @@ Le fichier de sauvegarde complet contient tout, dans un seul document :
 ```json
 {
   "app": "Gestion de Factures",
-  "backupVersion": "1.0",
+  "backupVersion": "2.0",
   "exportedAt": "2026-08-15T10:00:00.000Z",
   "invoices": [],
   "products": [],
   "clientNames": [],
-  "productNames": []
+  "productNames": [],
+  "productImages": {},
+  "documentSettings": "{...}",
+  "receiptSettings": "{...}"
 }
 ```
 
@@ -204,7 +289,7 @@ Le fichier de sauvegarde complet contient tout, dans un seul document :
     {
       "name": "Consulting",
       "quantity": 5,
-      "unitPrice": 150.0
+      "unitPrice": 150
     }
   ]
 }
@@ -216,10 +301,11 @@ Le fichier de sauvegarde complet contient tout, dans un seul document :
 flutter test
 ```
 
-- `test/widget_test.dart` : test de fumée (connexion admin + navigation entre les 4 onglets)
-- `test/backup_service_test.dart` : export CSV (échappement, une ligne par article) et aller-retour sauvegarde → restauration
-- `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm), y compris les règles métier fixes du tableau (nom 10 / qté 4 / prix 8) : nom de 10 caractères pile sur une seule ligne, nom long wrappé, quantité à 3 chiffres (x999), prix compacté à 8 caractères, SOUS-TOTAL / TOTAL À PAYER à la limite de 8 caractères, prix extrême tronqué
-- `test/receipt_settings_service_test.dart` : persistance des paramètres du reçu et de l'imprimante par défaut
+- **16 tests de régression d'audit** (`test/audit_regression_test.dart`, points a à n) : total unique, PDF multi-pages, prix vide refusé, stats rafraîchies, saisies non validées conservées, « Annuler » qui restaure tout, suppression d'articles sans mélange, autocomplétion + dernier prix, migration des images produit, restauration v1/v2 + sauvegarde de sécurité, code admin modifiable, `formatNumber`, lecture d'un stockage ancien, défauts sûrs des réglages de facture
+- **2 tests de parcours complet E2E** (`test/parcours_complet_test.dart`) : création → détail → remise + TVA → archivage → filtres → CSV → sauvegarde → restauration, et aperçu de partage généré depuis le détail
+- **10 tests de robustesse** (`test/robustesse_test.dart`) : 1 000 factures, débordements de texte, rotation, très grands montants, etc.
+- **Tests existants** : modèles, services, écrans, PDF, legacy storage (`invoice_money_test`, `backup_service_test`, `invoice_repository_test`, `client_price_index_test`, `document_settings_test`, `pdf_document_test`, `receipt_builder_test`, `screens_responsive_test`, `legacy_storage_test`, `widget_test`…)
+- **Total : 201 tests, ~3 min**
 
 ## 🖨️ Impression thermique (ESC/POS)
 
@@ -253,6 +339,7 @@ Le module d'impression génère **le même ticket thermique** pour le Bluetooth 
 - **Règles métier fixes, identiques sur les deux formats** (58 mm / 80 mm) : nom d'article **10 caractères max**, quantité **4 caractères max** (« x » inclus, couvre « x999 »), prix total de ligne **8 caractères max** (espaces inclus). Les cibles sont converties en ratios ESC/POS (grille de 12, somme = 12) cohérents avec l'allocation réelle de l'imprimante, mais les colonnes ne sont **jamais agrandies** : l'espace restant du papier (surtout en 80 mm) devient simplement de la marge / de l'espacement supplémentaire.
 - Le nom de l'article est wrappé exactement à 10 caractères et le prix est **compacté puis tronqué proprement** (`_fitPrice` : espaces de milliers retirés, puis troncature en dernier recours) s'il dépasse — aucun texte ne déborde du bord du ticket, quel que soit le format.
 - **Les montants des totaux** (SOUS-TOTAL, REMISE, TVA, TOTAL À PAYER) respectent la même limite de **8 caractères max** (espaces inclus) via `_fitPrice`, comme les prix de ligne des articles.
+- **Sortie imprimée inchangée** : côté ESC/POS, `formatNumber` / `formatCurrency` sont appelés avec `sep: ' '` (espace normale) ; l'espace insécable n'est utilisé que pour l'affichage à l'écran. Les octets envoyés à l'imprimante sont donc identiques à ceux d'avant le passage aux montants entiers.
 
 ### Permissions Android (AndroidManifest.xml)
 
@@ -292,7 +379,6 @@ Le module d'impression génère **le même ticket thermique** pour le Bluetooth 
 
 ## 🚧 Améliorations futures possibles
 
-- Mode sombre 🌙
 - Numérotation automatique des factures (ex : FAC-2026-001)
 - Fiche client détaillée (adresse, téléphone, historique)
 - Multi-devises

@@ -15,9 +15,13 @@ import '../models/receipt_settings.dart';
 import '../services/bluetooth_printer_service.dart';
 import '../services/network_printer_service.dart';
 import '../services/receipt_settings_service.dart';
-import '../utils/constants.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
 import 'bluetooth_device_sheet.dart';
 import 'network_printer_sheet.dart';
+import 'ui/app_card.dart';
+import 'ui/app_snack.dart';
 
 class ReceiptSettingsTab extends StatefulWidget {
   const ReceiptSettingsTab({super.key});
@@ -111,13 +115,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
       setState(() {});
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors du chargement du logo : $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      AppSnack.error(context, 'Erreur lors du chargement du logo : $e');
     } finally {
       if (mounted) setState(() => _pickingLogo = false);
     }
@@ -156,6 +154,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
+    final colors = AppColors.of(context);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -234,16 +233,16 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                   width: 72,
                   height: 72,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    color: AppColors.of(context).surfaceAlt,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: AppColors.of(context).border),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: _settings.logoPath != null
                       ? Image.file(File(_settings.logoPath!),
                           fit: BoxFit.contain)
-                      : const Icon(Icons.add_photo_alternate_outlined,
-                          color: Color(0xFF94A3B8), size: 30),
+                      : Icon(Icons.add_photo_alternate_outlined,
+                          color: AppColors.of(context).textMuted, size: 30),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -264,7 +263,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                         'PNG / JPG. Le logo est imprimé en noir & blanc en haut du ticket.',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey[600],
+                          color: AppColors.of(context).textMuted,
                           height: 1.3,
                         ),
                       ),
@@ -273,7 +272,8 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                 ),
                 if (_settings.logoPath != null)
                   IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    icon: Icon(Icons.delete_outline,
+                        color: AppColors.of(context).danger),
                     tooltip: 'Supprimer le logo',
                     onPressed: _removeLogo,
                   ),
@@ -332,7 +332,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
               '${_settings.format.label} → ${_settings.format.charsPerLine} caractères par ligne',
               style: TextStyle(
                 fontSize: 12.5,
-                color: Colors.grey[600],
+                color: AppColors.of(context).textMuted,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -406,20 +406,21 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                   Container(
                     width: 44,
                     height: 44,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: (_printerDevice != null
-                              ? const Color(0xFF16A34A)
-                              : const Color(0xFF64748B))
+                              ? colors.success
+                              : colors.textMuted)
                           .withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
                     child: Icon(
                       _printerDevice != null
                           ? Icons.bluetooth_connected
                           : Icons.bluetooth,
                       color: _printerDevice != null
-                          ? const Color(0xFF16A34A)
-                          : const Color(0xFF64748B),
+                          ? colors.success
+                          : colors.textMuted,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -439,7 +440,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                               'Choisissez votre imprimante thermique',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey[500],
+                            color: colors.textMuted,
                           ),
                         ),
                       ],
@@ -447,8 +448,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                   ),
                   TextButton(
                     onPressed: _openPrinterSheet,
-                    child:
-                        Text(_printerDevice != null ? 'Changer' : 'Choisir'),
+                    child: Text(_printerDevice != null ? 'Changer' : 'Choisir'),
                   ),
                 ],
               ),
@@ -463,18 +463,15 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                 Container(
                   width: 44,
                   height: 44,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: (_wifiIp != null
-                            ? const Color(0xFF2563EB)
-                            : const Color(0xFF64748B))
+                    color: (_wifiIp != null ? colors.primary : colors.textMuted)
                         .withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: Icon(
                     _wifiIp != null ? Icons.wifi : Icons.wifi_off,
-                    color: _wifiIp != null
-                        ? const Color(0xFF2563EB)
-                        : const Color(0xFF64748B),
+                    color: _wifiIp != null ? colors.primary : colors.textMuted,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -495,7 +492,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
                             : 'Saisissez l\'adresse IP de l\'imprimante',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey[500],
+                          color: colors.textMuted,
                         ),
                       ),
                     ],
@@ -514,7 +511,7 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
           '💡 Astuce : ouvrez « Aperçu du reçu » depuis une facture pour voir le ticket en temps réel avant impression.',
           style: TextStyle(
             fontSize: 12.5,
-            color: Colors.grey[600],
+            color: colors.textMuted,
             height: 1.4,
           ),
         ),
@@ -528,39 +525,36 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
     required String title,
     required String subtitle,
   }) {
+    final colors = AppColors.of(context);
     return Row(
       children: [
-        Icon(icon, size: 20, color: const Color(0xFF2563EB)),
+        Icon(icon, size: 20, color: colors.primary),
         const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: colors.textStrong,
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
-            ),
-            Text(
-              subtitle,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-          ],
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 12, color: colors.textMuted),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
   Widget _card({required List<Widget> children}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(Constants.cardRadius),
-        border: Border.all(color: const Color(0xFFEDF1F7)),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(children: children),
     );
   }
@@ -596,9 +590,8 @@ class _ReceiptSettingsTabState extends State<ReceiptSettingsTab> {
         title,
         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
       ),
-      secondary: Icon(icon, size: 20, color: const Color(0xFF64748B)),
+      secondary: Icon(icon, size: 20, color: AppColors.of(context).textMuted),
       value: value,
-      activeTrackColor: const Color(0xFF2563EB),
       onChanged: onChanged,
     );
   }

@@ -7,6 +7,9 @@ class Constants {
   static const String draftInvoiceKey = 'draft_invoice';
   static const String lastLoginDateKey = 'last_login_date';
 
+  // Clés du module document de facture (PDF & images)
+  static const String documentSettingsKey = 'document_settings';
+
   // Clés du module reçu thermique (ESC/POS)
   static const String receiptSettingsKey = 'receipt_settings';
   static const String defaultPrinterMacKey = 'default_printer_mac';

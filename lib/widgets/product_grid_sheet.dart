@@ -1,10 +1,17 @@
 // lib/widgets/product_grid_sheet.dart
+// Sélecteur de produit : recherche, chips de catégories et grille.
 
-import 'dart:io';
 import 'package:flutter/material.dart';
+
 import '../models/product.dart';
+import '../services/product_image_store.dart';
 import '../services/product_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
 import 'product_form_dialog.dart';
+import 'ui/empty_state.dart';
+import 'ui/sheet_handle.dart';
 
 class ProductGridSheet extends StatefulWidget {
   final Function(Product) onProductSelected;
@@ -15,27 +22,31 @@ class ProductGridSheet extends StatefulWidget {
   State<ProductGridSheet> createState() => _ProductGridSheetState();
 }
 
-class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerProviderStateMixin {
+class _ProductGridSheetState extends State<ProductGridSheet> {
   final ProductService _productService = ProductService();
+  final TextEditingController _searchController = TextEditingController();
   List<Product> _products = [];
   List<String> _categories = [];
   String? _selectedCategory;
-  // Nullable : créé seulement à la fin de _loadData(), il peut ne pas
-  // exister si le widget est fermé pendant le chargement.
-  TabController? _tabController;
+  String _query = '';
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(_onSearchChanged);
     _loadData();
   }
 
   @override
   void dispose() {
-    // Libère le TickerProvider pour éviter la fuite « Ticker was active ».
-    _tabController?.dispose();
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged() {
+    setState(() => _query = _searchController.text.trim().toLowerCase());
   }
 
   Future<void> _loadData() async {
@@ -44,90 +55,78 @@ class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerPr
     if (!mounted) return;
     final categories = await _productService.getCategories();
     if (!mounted) return;
-    // Ajouter une catégorie "Tous"
-    categories.insert(0, 'Tous');
     setState(() {
       _products = products;
-      _categories = categories;
-      _selectedCategory = 'Tous';
+      _categories = categories..sort();
+      if (_selectedCategory != null &&
+          !_categories.contains(_selectedCategory)) {
+        _selectedCategory = null;
+      }
+      _isLoading = false;
     });
-    // Disposer l'ancien contrôleur avant d'en créer un nouveau (chaque
-    // TabController réserve un Ticker auprès du TickerProvider) : sans
-    // cela, chaque appel à _loadData() fuyait un Ticker.
-    _tabController?.dispose();
-    _tabController = TabController(length: _categories.length, vsync: this);
-    _tabController!.addListener(() {
-      if (!mounted) return;
-      setState(() {
-        _selectedCategory = _categories[_tabController!.index];
-      });
-    });
-    if (!mounted) return;
-    setState(() => _isLoading = false);
   }
 
   List<Product> get _filteredProducts {
-    if (_selectedCategory == null || _selectedCategory == 'Tous') {
-      return _products;
-    }
-    return _products.where((p) => p.category == _selectedCategory).toList();
+    return _products.where((product) {
+      final matchesCategory =
+          _selectedCategory == null || product.category == _selectedCategory;
+      final matchesQuery =
+          _query.isEmpty || product.name.toLowerCase().contains(_query);
+      return matchesCategory && matchesQuery;
+    }).toList();
   }
 
-  void _addProduct() async {
-    await showDialog(
+  Future<void> _addProduct() async {
+    await showProductFormSheet(
       context: context,
-      builder: (ctx) => ProductFormDialog(
-        onSave: (product) async {
-          await _productService.addProduct(product);
-          if (!mounted) return;
-          _loadData();
-        },
-      ),
+      onSave: (product) => _productService.addProduct(product),
     );
+    if (!mounted) return;
+    await _loadData();
   }
 
-  void _editProduct(Product product) async {
-    await showDialog(
+  Future<void> _editProduct(Product product) async {
+    await showProductFormSheet(
       context: context,
-      builder: (ctx) => ProductFormDialog(
-        product: product,
-        onSave: (updated) async {
-          await _productService.updateProduct(updated);
-          if (!mounted) return;
-          _loadData();
-        },
-      ),
+      product: product,
+      onSave: (updated) => _productService.updateProduct(updated),
     );
+    if (!mounted) return;
+    await _loadData();
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final products = _filteredProducts;
+
     return Container(
-      height: MediaQuery.of(context).size.height * 0.8,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.lg),
+        ),
       ),
       child: Column(
         children: [
-          // Drag handle
-          Container(
-            margin: const EdgeInsets.only(top: 12),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
+          const SheetHandle(),
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              0,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Choisir un produit',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: colors.textStrong,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                 ),
                 IconButton(
@@ -138,60 +137,138 @@ class _ProductGridSheetState extends State<ProductGridSheet> with SingleTickerPr
               ],
             ),
           ),
-          if (_isLoading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
-          else ...[
-            TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              tabs: _categories.map((cat) => Tab(text: cat)).toList(),
-              labelColor: Theme.of(context).primaryColor,
-              unselectedLabelColor: Colors.grey,
-            ),
-            Expanded(
-              child: _filteredProducts.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey[400]),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Aucun produit dans cette catégorie',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                          TextButton.icon(
-                            onPressed: _addProduct,
-                            icon: const Icon(Icons.add),
-                            label: const Text('Ajouter un produit'),
-                          ),
-                        ],
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Rechercher un produit...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                isDense: true,
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        tooltip: 'Effacer la recherche',
+                        onPressed: _searchController.clear,
                       ),
-                    )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        childAspectRatio: 0.8,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                      ),
-                      itemCount: _filteredProducts.length,
-                      itemBuilder: (ctx, index) {
-                        final product = _filteredProducts[index];
-                        return _ProductCard(
-                          product: product,
-                          onTap: () {
-                            Navigator.pop(context);
-                            widget.onProductSelected(product);
-                          },
-                          onLongPress: () => _editProduct(product),
-                        );
-                      },
-                    ),
+              ),
             ),
-          ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Row(
+              children: [
+                _CategoryChip(
+                  label: 'Toutes',
+                  selected: _selectedCategory == null,
+                  onTap: () => setState(() => _selectedCategory = null),
+                ),
+                for (final category in _categories) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  _CategoryChip(
+                    label: category,
+                    selected: _selectedCategory == category,
+                    onTap: () => setState(() {
+                      _selectedCategory =
+                          _selectedCategory == category ? null : category;
+                    }),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : products.isEmpty
+                    ? EmptyState(
+                        icon: Icons.inventory_2_outlined,
+                        title: _products.isEmpty
+                            ? 'Aucun produit enregistré'
+                            : 'Aucun produit dans cette catégorie',
+                        message: _products.isEmpty
+                            ? 'Ajoutez un produit pour l\'utiliser dans vos '
+                                'factures.'
+                            : 'Modifiez la recherche ou la catégorie.',
+                        actionLabel: 'Ajouter un produit',
+                        onAction: _addProduct,
+                      )
+                    : GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          0,
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                        ),
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 160,
+                          mainAxisSpacing: AppSpacing.md,
+                          crossAxisSpacing: AppSpacing.md,
+                          childAspectRatio: 0.82,
+                        ),
+                        itemCount: products.length,
+                        itemBuilder: (ctx, index) {
+                          final product = products[index];
+                          return _ProductCard(
+                            product: product,
+                            onTap: () {
+                              Navigator.pop(context);
+                              widget.onProductSelected(product);
+                            },
+                            onLongPress: () => _editProduct(product),
+                          );
+                        },
+                      ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _CategoryChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.primary.withValues(alpha: 0.12)
+              : colors.surfaceAlt,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? colors.primary : colors.border),
+        ),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: selected ? colors.primary : colors.textBody,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
       ),
     );
   }
@@ -210,37 +287,59 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Card(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                child: product.imagePath != null && File(product.imagePath!).existsSync()
-                    ? Image.file(File(product.imagePath!), fit: BoxFit.cover)
-                    : Container(
-                        color: Colors.grey[200],
-                        child: const Icon(Icons.image_not_supported, color: Colors.grey),
+    final colors = AppColors.of(context);
+    final imageFile = ProductImageStore.instance.resolve(product.imagePath);
+
+    final placeholder = Container(
+      color: colors.surfaceAlt,
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.image_not_supported_outlined,
+        color: colors.textMuted,
+      ),
+    );
+
+    return Material(
+      color: colors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: colors.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: imageFile != null
+                    ? Image.file(
+                        imageFile,
+                        fit: BoxFit.cover,
+                        cacheWidth: 300,
+                        errorBuilder: (_, __, ___) => placeholder,
+                      )
+                    : placeholder,
+              ),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                child: Text(
+                  product.name,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.textStrong,
+                        fontWeight: FontWeight.w600,
                       ),
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                product.name,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

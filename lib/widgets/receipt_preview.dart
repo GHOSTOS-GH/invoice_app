@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/receipt_settings.dart';
 import '../services/receipt_builder.dart';
+import '../theme/app_colors.dart';
 
 class ReceiptPreviewView extends StatelessWidget {
   final ReceiptContent content;
@@ -32,7 +33,7 @@ class ReceiptPreviewView extends StatelessWidget {
 
     return Container(
       width: width,
-      color: Colors.white,
+      color: PaperColors.sheet,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -51,20 +52,20 @@ class ReceiptPreviewView extends StatelessWidget {
             const SizedBox(height: 8),
             Center(
               child: Container(
-                color: Colors.white,
+                color: PaperColors.sheet,
                 padding: const EdgeInsets.all(6),
                 child: QrImageView(
                   data: content.qrData!,
                   version: QrVersions.auto,
                   size: width * 0.45,
-                  backgroundColor: Colors.white,
+                  backgroundColor: PaperColors.sheet,
                   eyeStyle: const QrEyeStyle(
                     eyeShape: QrEyeShape.square,
-                    color: Colors.black,
+                    color: PaperColors.ink,
                   ),
                   dataModuleStyle: const QrDataModuleStyle(
                     dataModuleShape: QrDataModuleShape.square,
-                    color: Colors.black,
+                    color: PaperColors.ink,
                   ),
                 ),
               ),
@@ -86,7 +87,7 @@ class ReceiptPreviewView extends StatelessWidget {
       fontSize: line.fontSize == 2 ? baseFontSize * 1.9 : baseFontSize,
       fontWeight: line.bold ? FontWeight.w700 : FontWeight.w400,
       decoration: line.underline ? TextDecoration.underline : null,
-      color: Colors.black,
+      color: PaperColors.ink,
       height: 1.25,
     );
 
@@ -101,7 +102,7 @@ class ReceiptPreviewView extends StatelessWidget {
 
     if (line.reverse) {
       return Container(
-        color: Colors.black,
+        color: PaperColors.ink,
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: text,
       );
@@ -115,7 +116,7 @@ class ReceiptPreviewView extends StatelessWidget {
       fontFamilyFallback: _monoFallback,
       fontSize: baseFontSize,
       fontWeight: row.bold ? FontWeight.w700 : FontWeight.w400,
-      color: Colors.black,
+      color: PaperColors.ink,
       height: 1.25,
     );
     return Row(

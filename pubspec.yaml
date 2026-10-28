@@ -26,6 +26,7 @@ dependencies:
   blue_thermal_printer: ^1.2.3
   qr_flutter: ^4.1.0
   permission_handler: ^13.0.1
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -38,6 +39,17 @@ flutter:
   assets:
     - assets/icon/
     - assets/watermark/
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
 
 flutter_launcher_icons:
   android: "launcher_icon"

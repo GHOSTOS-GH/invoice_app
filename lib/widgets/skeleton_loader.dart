@@ -1,6 +1,11 @@
 // lib/widgets/skeleton_loader.dart
+// Squelettes de chargement aux couleurs du thème (clair et sombre).
+
 import 'package:flutter/material.dart';
-import '../utils/constants.dart';
+
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
 
 class SkeletonLoader extends StatefulWidget {
   final double width;
@@ -29,7 +34,9 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(_controller);
+    _animation = Tween<double>(begin: 0.35, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
   }
 
   @override
@@ -40,6 +47,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     return AnimatedBuilder(
       animation: _animation,
       builder: (context, child) {
@@ -47,7 +55,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
           width: widget.width,
           height: widget.height,
           decoration: BoxDecoration(
-            color: Colors.grey[300]!.withValues(alpha: _animation.value),
+            color: colors.border.withValues(alpha: _animation.value),
             borderRadius: BorderRadius.circular(widget.radius),
           ),
         );
@@ -63,9 +71,9 @@ class SkeletonList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       itemCount: itemCount,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
       itemBuilder: (_, __) => const _SkeletonCard(),
     );
   }
@@ -76,38 +84,38 @@ class _SkeletonCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Constants.cardRadius)),
-      child: const Padding(
-        padding: EdgeInsets.all(16),
-        child: Row(
-          children: [
-            SkeletonLoader(width: 56, height: 56, radius: 12),
-            SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SkeletonLoader(width: 120, height: 16, radius: 8),
-                  SizedBox(height: 8),
-                  SkeletonLoader(width: 80, height: 12, radius: 8),
-                  SizedBox(height: 8),
-                  SkeletonLoader(width: 100, height: 12, radius: 8),
-                ],
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.of(context).surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.of(context).border),
+      ),
+      child: const Row(
+        children: [
+          SkeletonLoader(width: 48, height: 48, radius: 24),
+          SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SkeletonLoader(width: 80, height: 18, radius: 8),
-                SizedBox(height: 8),
-                SkeletonLoader(width: 60, height: 12, radius: 8),
+                SkeletonLoader(width: 120, height: 16, radius: 8),
+                SizedBox(height: AppSpacing.sm),
+                SkeletonLoader(width: 80, height: 12, radius: 8),
+                SizedBox(height: AppSpacing.sm),
+                SkeletonLoader(width: 100, height: 12, radius: 8),
               ],
             ),
-          ],
-        ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              SkeletonLoader(width: 72, height: 18, radius: 8),
+              SizedBox(height: AppSpacing.sm),
+              SkeletonLoader(width: 56, height: 12, radius: 8),
+            ],
+          ),
+        ],
       ),
     );
   }
