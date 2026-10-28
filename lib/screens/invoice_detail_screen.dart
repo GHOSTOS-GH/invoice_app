@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../models/invoice.dart';
 import '../models/product.dart';
 import '../services/client_price_index.dart';
+import '../services/invoice_image_service.dart';
 import '../services/invoice_repository.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radius.dart';
@@ -20,10 +21,16 @@ import 'share_invoice_screen.dart';
 class InvoiceDetailScreen extends StatefulWidget {
   final Invoice invoice;
   final VoidCallback onInvoiceUpdated;
+
+  /// Moteur d'images transmis à l'écran de partage (remplaçable en test :
+  /// la rastérisation native exige un appareil).
+  final InvoiceImageRenderer? imageService;
+
   const InvoiceDetailScreen({
     super.key,
     required this.invoice,
     required this.onInvoiceUpdated,
+    this.imageService,
   });
 
   @override
@@ -662,7 +669,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   void _openShare() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ShareInvoiceScreen(invoice: _invoice),
+        builder: (_) => ShareInvoiceScreen(
+          invoice: _invoice,
+          imageService: widget.imageService,
+        ),
       ),
     );
   }

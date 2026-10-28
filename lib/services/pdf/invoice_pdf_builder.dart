@@ -36,6 +36,7 @@ class InvoicePdfBuilder {
     Invoice invoice, {
     DocumentSettings settings = const DocumentSettings(),
     DocumentImageFormat imageFormat = DocumentImageFormat.a4,
+    bool compress = true,
   }) async {
     final palette = PdfPalette.fromAccent(settings.accentColor);
     final theme = await PdfAssets.theme();
@@ -59,6 +60,8 @@ class InvoicePdfBuilder {
       author: settings.businessName,
       creator: 'Gestion de Factures',
       theme: theme,
+      // `compress: false` n'est utilisé que par les tests (lecture du texte).
+      compress: compress,
     );
 
     document.addPage(

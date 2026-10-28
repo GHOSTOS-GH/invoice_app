@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 
 import '../models/invoice.dart';
 import '../services/backup_service.dart';
+import '../services/invoice_image_service.dart';
 import '../services/invoice_repository.dart';
 import '../services/pdf_service.dart';
 import '../theme/app_colors.dart';
@@ -30,7 +31,16 @@ enum SortOption {
 
 class HistoryScreen extends StatefulWidget {
   final VoidCallback onInvoiceUpdated;
-  const HistoryScreen({super.key, required this.onInvoiceUpdated});
+
+  /// Moteur d'images transmis au détail puis à l'écran de partage
+  /// (remplaçable en test : la rastérisation native exige un appareil).
+  final InvoiceImageRenderer? imageService;
+
+  const HistoryScreen({
+    super.key,
+    required this.onInvoiceUpdated,
+    this.imageService,
+  });
 
   @override
   State<HistoryScreen> createState() => HistoryScreenState();
@@ -233,6 +243,7 @@ class HistoryScreenState extends State<HistoryScreen>
             InvoiceDetailScreen(
           invoice: invoice,
           onInvoiceUpdated: widget.onInvoiceUpdated,
+          imageService: widget.imageService,
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
@@ -412,6 +423,7 @@ class HistoryScreenState extends State<HistoryScreen>
         currentSort: _currentSort,
         filteredCount: _filteredInvoices.length,
         onSort: (option) {
+          if (!mounted) return;
           setState(() {
             _currentSort = option;
             _filteredInvoices = _applyFilters();
@@ -420,6 +432,7 @@ class HistoryScreenState extends State<HistoryScreen>
         },
         onExportCsv: _exportFilteredCsv,
         onResetFilters: () {
+          if (!mounted) return;
           setState(() {
             _statusFilters.clear();
             _filterDateRange = null;
