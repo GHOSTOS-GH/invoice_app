@@ -29,6 +29,14 @@ L'état de référence du projet (versions, `flutter analyze`, `flutter test`) e
 
 ## ✨ Fonctionnalités
 
+### 🧭 Vue d'ensemble de la refonte
+- **Montants en FCFA entiers** : aucun décimal dans les calculs, l'affichage et les exports (arrondi `.round()`)
+- **Réglages PDF et images** : logo, infos boutique, éléments affichés, style (3 modèles), couleur d'accent, format image (A4 / long WhatsApp), QR code, filigrane, pied de page — tous activables/désactivables dans Paramètres → Facture (PDF & images)
+- **Mode sombre** : Système / Clair / Sombre, réglable dans Paramètres → Apparence
+- **Sécurité** : identifiant et code modifiables dans l'application, stockage haché (sel + SHA-256)
+- **Sauvegarde v2** : inclut les images produits (base64) et les réglages de facture ; rétro-compatible avec les sauvegardes v1
+- **Refonte UI/UX complète** : design system Inter, thème Material 3 clair/sombre, widgets harmonisés, tous les écrans revus
+
 ### 🆕 Création de facture
 - Nom du client avec **autocomplétion** basée sur l'historique
 - Ajout illimité d'articles depuis la **bibliothèque produits** (photos, catégories)
@@ -117,16 +125,33 @@ L'état de référence du projet (versions, `flutter analyze`, `flutter test`) e
 lib/
 ├── main.dart                          # Point d'entrée, thème et navigation
 ├── models/
-│   ├── invoice.dart                   # Invoice, InvoiceItem, InvoiceStatus
+│   ├── invoice.dart                   # Invoice, InvoiceItem, InvoiceStatus (+ payableTotal)
 │   ├── product.dart                   # Produit de la bibliothèque
+│   ├── document_settings.dart         # Réglages PDF / images (logo, éléments, style, QR…)
 │   └── receipt_settings.dart          # Paramètres du reçu thermique (ESC/POS)
+├── theme/                             # Design system : couleurs, typo, espacements, rayons, thème
+│   ├── app_colors.dart                # Jetons de couleur clair / sombre
+│   ├── app_typography.dart            # Échelle typographique Inter
+│   ├── app_spacing.dart               # Espacements
+│   ├── app_radius.dart                # Rayons
+│   ├── app_theme.dart                 # ThemeData Material 3 clair / sombre
+│   └── theme_controller.dart          # Système / Clair / Sombre (persisté)
 ├── services/
+│   ├── invoice_repository.dart        # Source de données unique en mémoire (factures)
+│   ├── client_price_index.dart        # Index des derniers prix par client
+│   ├── document_settings_service.dart # Persistance des réglages PDF et images
+│   ├── invoice_image_service.dart     # Rastérisation PDF → PNG / JPG (isolates)
+│   ├── product_image_store.dart       # Stockage durable des photos produits + migration
 │   ├── storage_service.dart           # Persistance + prix historiques par client
 │   ├── history_service.dart           # Autocomplétion clients/articles
 │   ├── product_service.dart           # Bibliothèque produits
-│   ├── pdf_service.dart               # Génération PDF/PNG/JPG + filigrane
-│   ├── backup_service.dart            # Export CSV + sauvegarde/restauration JSON
-│   ├── auth_service.dart              # Authentification journalière
+│   ├── pdf/                           # Moteur PDF
+│   │   ├── invoice_pdf_builder.dart   # InvoicePdfBuilder (MultiPage, 3 modèles)
+│   │   ├── pdf_assets.dart            # PdfAssets (polices, logo)
+│   │   └── pdf_palette.dart           # PdfPalette (couleur d'accent)
+│   ├── pdf_service.dart               # Façade PDF / images + partage
+│   ├── backup_service.dart            # Export CSV + sauvegarde/restauration JSON (v2)
+│   ├── auth_service.dart              # Authentification journalière (code haché)
 │   ├── receipt_builder.dart           # Construction du reçu ESC/POS (même plan pour l'aperçu, tableau à règles métier fixes : nom 10 / qté 4 / prix 8, identiques en 58 et 80 mm)
 │   ├── receipt_printer_common.dart    # Préparation commune des octets ESC/POS
 │   ├── receipt_settings_service.dart  # Persistance des paramètres du reçu + imprimante par défaut
@@ -136,14 +161,34 @@ lib/
 │   ├── new_invoice_screen.dart        # Création de facture
 │   ├── history_screen.dart            # Historique + filtres + période
 │   ├── invoice_detail_screen.dart     # Détails et édition
+│   ├── share_invoice_screen.dart      # Aperçu et partage PDF / PNG / JPG
 │   ├── receipt_preview_screen.dart    # Aperçu du reçu + envoi Bluetooth / Wi-Fi
 │   ├── stats_screen.dart              # Statistiques
-│   ├── settings_screen.dart           # Paramètres (clients, articles, produits, sauvegarde, reçu)
+│   ├── settings_screen.dart           # Paramètres (catalogue, facturation, impression, données, application)
+│   ├── settings/                      # Sous-pages des paramètres
+│   │   ├── appearance_page.dart       # Thème Système / Clair / Sombre
+│   │   ├── backup_page.dart           # Export CSV, sauvegarde / restauration JSON
+│   │   ├── document_page.dart         # Facture (PDF & images)
+│   │   ├── name_history_page.dart     # Clients / historique des articles
+│   │   ├── products_page.dart         # Bibliothèque produits
+│   │   ├── receipt_page.dart          # Reçu thermique
+│   │   └── security_page.dart         # Identifiant, code, déconnexion
 │   └── login_screen.dart              # Connexion admin
 ├── utils/
 │   ├── constants.dart                 # Clés, identifiants, tailles
 │   └── formatters.dart                # formatNumber / formatCurrency (entiers, insécable par défaut)
 └── widgets/
+    ├── ui/                            # Widgets réutilisables du design system
+    │   ├── app_card.dart              # AppCard
+    │   ├── status_badge.dart          # StatusBadge
+    │   ├── amount_text.dart           # AmountText
+    │   ├── app_text_field.dart        # AppTextField
+    │   ├── app_sheet.dart             # AppSheet
+    │   ├── app_snack.dart             # AppSnack
+    │   ├── choice_tile.dart / section_header.dart / sheet_handle.dart
+    │   ├── client_avatar.dart / empty_state.dart
+    │   ├── quantity_stepper.dart / status_stepper.dart
+    │   └── sticky_total_bar.dart
     ├── last_price_hint.dart           # Encart « dernier prix par client »
     ├── product_grid_sheet.dart        # Grille de sélection de produits
     ├── product_form_dialog.dart       # Formulaire produit (photo)
@@ -151,8 +196,7 @@ lib/
     ├── receipt_settings_tab.dart      # Onglet « Reçu » des paramètres
     ├── bluetooth_device_sheet.dart    # Sélection / connexion imprimante Bluetooth
     ├── network_printer_sheet.dart     # Configuration imprimante Wi-Fi (IP + test)
-    ├── skeleton_loader.dart           # Squelettes de chargement
-    └── item_form_dialog.dart          # (conservé pour compatibilité)
+    └── skeleton_loader.dart           # Squelettes de chargement
 ```
 
 ## 📦 Dépendances
@@ -220,12 +264,15 @@ Le fichier de sauvegarde complet contient tout, dans un seul document :
 ```json
 {
   "app": "Gestion de Factures",
-  "backupVersion": "1.0",
+  "backupVersion": "2.0",
   "exportedAt": "2026-08-15T10:00:00.000Z",
   "invoices": [],
   "products": [],
   "clientNames": [],
-  "productNames": []
+  "productNames": [],
+  "productImages": {},
+  "documentSettings": "{...}",
+  "receiptSettings": "{...}"
 }
 ```
 
@@ -254,12 +301,11 @@ Le fichier de sauvegarde complet contient tout, dans un seul document :
 flutter test
 ```
 
-- `test/widget_test.dart` : test de fumée (connexion admin + navigation entre les 4 onglets)
-- `test/backup_service_test.dart` : export CSV (échappement, une ligne par article) et aller-retour sauvegarde → restauration
-- `test/receipt_builder_test.dart` : plan du reçu et génération des octets ESC/POS (58 mm / 80 mm), y compris les règles métier fixes du tableau (nom 10 / qté 4 / prix 8) : nom de 10 caractères pile sur une seule ligne, nom long wrappé, quantité à 3 chiffres (x999), prix compacté à 8 caractères, SOUS-TOTAL / TOTAL À PAYER à la limite de 8 caractères, prix extrême tronqué
-- `test/receipt_settings_service_test.dart` : persistance des paramètres du reçu et de l'imprimante par défaut
-- `test/invoice_money_test.dart` : calculs en entiers FCFA (TVA arrondie, remise plafonnée), formatters et relecture d'un ancien JSON décimal
-- `test/pdf_service_test.dart` : génération du PDF avec et sans remise / TVA
+- **16 tests de régression d'audit** (`test/audit_regression_test.dart`, points a à n) : total unique, PDF multi-pages, prix vide refusé, stats rafraîchies, saisies non validées conservées, « Annuler » qui restaure tout, suppression d'articles sans mélange, autocomplétion + dernier prix, migration des images produit, restauration v1/v2 + sauvegarde de sécurité, code admin modifiable, `formatNumber`, lecture d'un stockage ancien, défauts sûrs des réglages de facture
+- **2 tests de parcours complet E2E** (`test/parcours_complet_test.dart`) : création → détail → remise + TVA → archivage → filtres → CSV → sauvegarde → restauration, et aperçu de partage généré depuis le détail
+- **10 tests de robustesse** (`test/robustesse_test.dart`) : 1 000 factures, débordements de texte, rotation, très grands montants, etc.
+- **Tests existants** : modèles, services, écrans, PDF, legacy storage (`invoice_money_test`, `backup_service_test`, `invoice_repository_test`, `client_price_index_test`, `document_settings_test`, `pdf_document_test`, `receipt_builder_test`, `screens_responsive_test`, `legacy_storage_test`, `widget_test`…)
+- **Total : 201 tests, ~3 min**
 
 ## 🖨️ Impression thermique (ESC/POS)
 
@@ -333,7 +379,6 @@ Le module d'impression génère **le même ticket thermique** pour le Bluetooth 
 
 ## 🚧 Améliorations futures possibles
 
-- Mode sombre 🌙
 - Numérotation automatique des factures (ex : FAC-2026-001)
 - Fiche client détaillée (adresse, téléphone, historique)
 - Multi-devises
