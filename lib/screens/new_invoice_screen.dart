@@ -638,7 +638,6 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   Product? _selectedProduct;
   bool _priceTouched = false;
   String? _quantityError;
-  String? _priceError;
 
   @override
   void initState() {
@@ -708,14 +707,14 @@ class _AddItemSheetState extends State<_AddItemSheet> {
 
   void _submit() {
     final quantity = int.tryParse(_quantityController.text.trim());
-    final price = int.tryParse(_priceController.text.trim());
+    final rawPrice = int.tryParse(_priceController.text.trim());
+    // Prix vide ou nul : 1 FCFA par défaut (choix utilisateur), modifiable
+    // ensuite depuis la liste des articles.
+    final price = (rawPrice == null || rawPrice <= 0) ? 1 : rawPrice;
 
     setState(() {
       _quantityError = (quantity == null || quantity <= 0)
           ? 'Quantité obligatoire (entier supérieur à 0)'
-          : null;
-      _priceError = (price == null || price <= 0)
-          ? 'Prix obligatoire (entier supérieur à 0)'
           : null;
     });
 
@@ -724,13 +723,13 @@ class _AddItemSheetState extends State<_AddItemSheet> {
       return;
     }
 
-    // Saisie invalide : la feuille reste ouverte et l'article n'est pas ajouté.
-    if (_quantityError != null || _priceError != null) return;
+    // Quantité invalide : la feuille reste ouverte, l'article n'est pas ajouté.
+    if (_quantityError != null) return;
 
     final item = InvoiceItem(
       name: _selectedProduct!.name,
       quantity: quantity!,
-      unitPrice: price!,
+      unitPrice: price,
     );
     widget.onAdd(item);
   }
@@ -840,14 +839,11 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               onChanged: (_) {
                 // Saisie manuelle : le pré-remplissage ne doit plus écraser.
                 _priceTouched = true;
-                if (_priceError != null) {
-                  setState(() => _priceError = null);
-                }
               },
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'Prix unitaire (FCFA)',
-                prefixIcon: const Icon(Icons.payments_outlined, size: 20),
-                errorText: _priceError,
+                prefixIcon: Icon(Icons.payments_outlined, size: 20),
+                helperText: 'Laisser vide = 1 FCFA (à modifier plus tard)',
               ),
             ),
             LastPriceHint(

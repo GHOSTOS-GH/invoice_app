@@ -188,9 +188,9 @@ void main() {
     expect(String.fromCharCodes(pdf.take(5)), '%PDF-');
   });
 
-  // --------------------------------------------------------- c) prix vide
+  // ------------------------------------------- c) prix vide = 1 FCFA
 
-  testWidgets('c) prix vide refusé (plus de 1 FCFA inventé)', (tester) async {
+  testWidgets('c) prix vide = 1 FCFA par défaut', (tester) async {
     SharedPreferences.setMockInitialValues({'products': _productsJson});
     _resetData();
     _setSurface(tester, size: const Size(900, 1600));
@@ -203,28 +203,47 @@ void main() {
     await tester.tap(find.text('Riz parfumé'));
     await tester.pumpAndSettle();
 
-    // Le prix est vide (aucun prix par défaut inventé) : la validation refuse.
+    // La quantité reste obligatoire : sans elle, rien n'est ajouté.
     await tester.tap(find.text('Ajouter l\'article'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Prix obligatoire (entier supérieur à 0)'), findsOneWidget);
-    expect(find.text('Quantité obligatoire (entier supérieur à 0)'), findsOneWidget);
+    expect(find.text('Prix obligatoire (entier supérieur à 0)'), findsNothing);
+    expect(find.text('Quantité obligatoire (entier supérieur à 0)'),
+        findsOneWidget);
     expect(find.text('Nouvel article'), findsOneWidget, reason: 'feuille ouverte');
     // Aucun article n'a rejoint la facture.
     expect(find.text('Aucun article'), findsOneWidget);
 
-    // Un prix à 1 FCFA suffit : il n'est plus refusé.
+    // Prix laissé vide : l'article est ajouté à 1 FCFA (modifiable ensuite).
     await tester.enterText(
       find.widgetWithText(TextField, 'Quantité *'),
       '2',
     );
+    await tester.tap(find.text('Ajouter l\'article'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun article'), findsNothing);
+    expect(find.text('2 × 1 FCFA'), findsOneWidget);
+
+    // Prix saisi à 0 : même règle, 1 FCFA.
+    await tester.tap(find.byTooltip('Ajouter un article'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appuyez pour choisir un produit'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Huile rouge'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Quantité *'),
+      '3',
+    );
     await tester.enterText(
       find.widgetWithText(TextField, 'Prix unitaire (FCFA)'),
-      '1',
+      '0',
     );
     await tester.tap(find.text('Ajouter l\'article'));
     await tester.pumpAndSettle();
-    expect(find.text('Aucun article'), findsNothing);
+
+    expect(find.text('3 × 1 FCFA'), findsOneWidget);
   });
 
   // ---------------------------------------------------------- d) stats
