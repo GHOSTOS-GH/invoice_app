@@ -40,7 +40,7 @@ L'état de référence du projet (versions, `flutter analyze`, `flutter test`) e
 ### 🆕 Création de facture
 - Nom du client avec **autocomplétion** basée sur l'historique
 - Ajout illimité d'articles depuis la **bibliothèque produits** (photos, catégories)
-- Quantité et prix unitaire **obligatoires**, en **entiers FCFA** (clavier numérique, chiffres uniquement) : une saisie vide ou nulle affiche l'erreur sous le champ et n'ajoute pas l'article (aucun prix par défaut n'est inventé)
+- Quantité **obligatoire** et prix unitaire en **entiers FCFA** (clavier numérique, chiffres uniquement) : **prix vide = 1 FCFA par défaut (choix utilisateur)**, modifiable ensuite ; la quantité vide ou nulle affiche l'erreur sous le champ et n'ajoute pas l'article
 - **Prix intelligent par client** : le dernier prix vendu à ce client précis est pré-rempli automatiquement et affiché dans un encart contextuel (les prix peuvent varier selon les clients)
 - Brouillon automatique : la facture en cours est sauvegardée même si on quitte l'application
 - Total à payer (`payableTotal`) et compteur d'articles mis à jour en temps réel
@@ -76,7 +76,9 @@ L'état de référence du projet (versions, `flutter analyze`, `flutter test`) e
 - Document PDF au design moderne (en-tête, tableau, total en dégradé, notes, pied de page)
 - **Bloc total** : sous-total, remise, TVA et **TOTAL À PAYER** quand une remise ou une TVA existe ; sinon un simple `TOTAL`, comme avant
 - **Filigrane du logo** (assets/watermark/logo.png) sur toutes les factures générées
-- Export en image PNG ou JPG (idéal pour WhatsApp)
+- Export en image PNG ou JPG (idéal pour WhatsApp), en qualité **Standard (150 dpi)**, **Haute (200 dpi, par défaut)** ou **Ultra (300 dpi)**, avec qualité JPG réglable de 70 à 98
+- **Garde-fou mémoire** : une page qui dépasserait 24 Mpx est générée en 200 dpi pour cette image, sans modifier le réglage
+- Astuce affichée dans l'application : pour une netteté parfaite sur WhatsApp, envoyer le PDF ou joindre l'image comme Document (WhatsApp recompresse les photos)
 - Partage natif direct depuis l'application
 - **Export groupé** : les factures sélectionnées sont générées puis partagées en **un seul partage natif** (liste de PDF), au lieu d'ouvrir le partage une fois par facture
 
@@ -301,11 +303,12 @@ Le fichier de sauvegarde complet contient tout, dans un seul document :
 flutter test
 ```
 
-- **16 tests de régression d'audit** (`test/audit_regression_test.dart`, points a à n) : total unique, PDF multi-pages, prix vide refusé, stats rafraîchies, saisies non validées conservées, « Annuler » qui restaure tout, suppression d'articles sans mélange, autocomplétion + dernier prix, migration des images produit, restauration v1/v2 + sauvegarde de sécurité, code admin modifiable, `formatNumber`, lecture d'un stockage ancien, défauts sûrs des réglages de facture
+- **16 tests de régression d'audit** (`test/audit_regression_test.dart`, points a à n) : total unique, PDF multi-pages, prix vide = 1 FCFA par défaut, stats rafraîchies, saisies non validées conservées, « Annuler » qui restaure tout, suppression d'articles sans mélange, autocomplétion + dernier prix, migration des images produit, restauration v1/v2 + sauvegarde de sécurité, code admin modifiable, `formatNumber`, lecture d'un stockage ancien, défauts sûrs des réglages de facture
 - **2 tests de parcours complet E2E** (`test/parcours_complet_test.dart`) : création → détail → remise + TVA → archivage → filtres → CSV → sauvegarde → restauration, et aperçu de partage généré depuis le détail
+- **3 tests de focus** (`test/focus_test.dart`) : l'observateur de navigation défocalise à chaque page, et le clavier ne se rouvre ni au retour du détail ni au changement d'onglet
 - **10 tests de robustesse** (`test/robustesse_test.dart`) : 1 000 factures, débordements de texte, rotation, très grands montants, etc.
 - **Tests existants** : modèles, services, écrans, PDF, legacy storage (`invoice_money_test`, `backup_service_test`, `invoice_repository_test`, `client_price_index_test`, `document_settings_test`, `pdf_document_test`, `receipt_builder_test`, `screens_responsive_test`, `legacy_storage_test`, `widget_test`…)
-- **Total : 201 tests, ~3 min**
+- **Total : 212 tests, ~3 min**
 
 ## 🖨️ Impression thermique (ESC/POS)
 

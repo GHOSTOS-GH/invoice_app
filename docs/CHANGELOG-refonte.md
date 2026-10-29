@@ -11,6 +11,69 @@ Convention : les tests cités sont dans `test/audit_regression_test.dart`
 
 ---
 
+## Retours utilisateur — v2.0.1 (`fix/retours-utilisateur`)
+
+Trois corrections ciblées après la recette. `flutter analyze` = 0 problème,
+`flutter test` = **212 tests verts**. Ni l'impression, ni l'`applicationId`,
+ni la configuration de signature n'ont été touchés.
+
+### 1. Prix vide = 1 FCFA à l'ajout d'un article
+
+Un prix unitaire **vide ou à 0** vaut **1 FCFA** à l'ajout, et reste
+modifiable ensuite ; le champ affiche « Laisser vide = 1 FCFA (à modifier plus
+tard) ». La **quantité reste obligatoire**. Même règle sur le panneau d'ajout
+du détail en édition ; la validation des lignes existantes (`_EditableItemTile`,
+prix > 0 obligatoire) est inchangée.
+
+**Tests.** `c) prix vide = 1 FCFA par défaut` (quantité vide refusée, prix vide
+et prix « 0 » acceptés à 1 FCFA) et `ajout sans prix en édition : ligne à
+1 FCFA, total recalculé` dans `test/invoice_detail_screen_test.dart`.
+
+### 2. Qualité des images PNG / JPG relevée
+
+`DocumentImageQuality` gagne **Ultra (300 dpi)** ; les défauts passent à
+**Haute (200 dpi)** et **JPG 92**, et la borne JPG monte à **70–98** partout
+(modèle, service d'images, curseur des paramètres). Migration rétro-compatible
+du schéma (`currentVersion` 1 → 2) : un JSON v1 resté aux anciens défauts
+(`standard` + `85`) passe à `high` + `92` ; toute autre valeur choisie par
+l'utilisateur (Ultra, JPG 90…) est conservée, et un JSON absent ou corrompu
+donnes les nouveaux défauts. Un garde-fou mémoire estime les pixels de la page
+(largeur × hauteur réelles du format) et retombe à **200 dpi** au-delà de
+**24 Mpx**, pour cette génération seulement ; le cache reste indexé par le dpi.
+
+**Mesures (facture de 10 articles, rendu de test sans appareil).**
+Haute — 1 654 × 2 339 px : **PNG 459 ms, JPG 465 ms**. Ultra — 2 480 × 3 508 px :
+**PNG 1 376 ms, JPG 1 042 ms** (sous les 4 s : l'option est conservée). Ces
+durées incluent PDF, rastérisation injectée, composition et encodage ; elles
+ne préjugent pas du temps réel sur téléphone.
+
+**Tests.** `test/document_settings_test.dart` : nouveaux défauts, migration v1
+(standard/85 → haute/92 ; ultra ou JPG 90 conservés), JSON corrompu → défauts,
+aller-retour de sauvegarde v2 avec `imageQuality` / `jpgQuality`.
+`test/invoice_image_test.dart` : dpi attendus (200 par défaut, 300 en Ultra),
+repli à 200 dpi au-delà de 24 Mpx, cache distinct par dpi, et mesure des durées
+PNG / JPG en Haute et en Ultra.
+
+### 3. Clavier qui s'ouvre au retour d'un détail
+
+`UnfocusNavigatorObserver` (`lib/utils/focus_observer.dart`) défocalise le
+champ actif après chaque `didPush`, `didPop` et `didReplace` d'une `PageRoute`
+(uniquement : les feuilles, dialogues et sélecteurs de date gardent leur
+focus). Il est branché sur le `MaterialApp`, le changement d'onglet ferme aussi
+le clavier, et l'historique défocalise sa recherche avant d'ouvrir un détail
+avec un `FocusNode` dédié (`onTapOutside` pour la fermer au toucher ailleurs).
+
+**Tests.** `test/focus_test.dart` : l'observateur seul (page poussée puis
+retirée), le parcours Historique → détail → retour avec la recherche focalisée,
+et l'enchaînement complet InvoiceApp Stats → Historique → détail → retour
+(frames, sans `pumpAndSettle` sur les écrans à animations continues).
+
+**Non vérifiable sans appareil.** Le comportement réel du clavier Android/iOS
+(fermeture visuelle, `resizeToAvoidBottomInset`) et le rendu des images
+partagées par WhatsApp.
+
+---
+
 ## a) Un seul total de référence
 
 **Fait.** `Invoice.payableTotal` (= sous-total − remise appliquée + TVA) est
@@ -48,17 +111,19 @@ bas de page, logo, filigrane, QR) et l'impression papier du PDF.
 
 ---
 
-## c) Prix vide refusé (fin du 1 FCFA inventé)
+## c) Prix vide = 1 FCFA par défaut (choix utilisateur)
 
-**Fait.** À l'ajout d'un article, le prix unitaire **et** la quantité partent
-vides : la validation affiche « Prix obligatoire (entier supérieur à 0) » /
-« Quantité obligatoire (entier supérieur à 0) » sous le champ et l'article
-n'est pas ajouté. Aucun prix par défaut n'est inventé (l'ancien comportement
-posait 1 FCFA et laissait passer l'article). Le prix peut varier par client
-(voir point h)).
+**Fait.** À l'ajout d'un article, un prix unitaire vide **ou à 0** vaut
+**1 FCFA**, modifiable ensuite ; un texte d'aide sous le champ le rappelle
+(« Laisser vide = 1 FCFA (à modifier plus tard) »). La **quantité reste
+obligatoire** : sans elle, l'article n'est pas ajouté et l'erreur s'affiche
+sous le champ. Le même comportement s'applique au panneau d'ajout du détail
+en mode édition ; la validation des lignes déjà existantes (prix > 0
+obligatoire) ne change pas. Le prix peut varier par client (voir point h)).
 
-**Tests.** `c) prix vide refusé (plus de 1 FCFA inventé)` : refus à vide, puis
-acceptation à 1 FCFA.
+**Tests.** `c) prix vide = 1 FCFA par défaut` : quantité vide refusée, prix
+vide accepté à 1 FCFA, prix « 0 » accepté à 1 FCFA ; côté détail,
+`ajout sans prix en édition : ligne à 1 FCFA, total recalculé`.
 
 **Non vérifiable sans appareil.** Le comportement du clavier numérique natif
 Android/iOS (chiffres uniquement).
