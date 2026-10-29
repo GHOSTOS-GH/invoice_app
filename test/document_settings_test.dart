@@ -80,7 +80,8 @@ void main() {
       expect(decoded.logoPath, DocumentSettings.defaultLogoAsset);
       expect(decoded.footerLine1, 'Merci pour votre confiance');
       expect(decoded.imageFormat, DocumentImageFormat.a4);
-      expect(decoded.jpgQuality, 85);
+      expect(decoded.jpgQuality, 92);
+      expect(decoded.imageQuality, DocumentImageQuality.high);
     });
 
     test('valeurs hors bornes ramenées dans le domaine', () {
@@ -96,7 +97,75 @@ void main() {
         'jpgQuality': 300,
       });
       expect(low.watermarkOpacity, 0.03);
-      expect(low.jpgQuality, 95);
+      expect(low.jpgQuality, 98);
+    });
+
+    test('trois niveaux de qualité, Haute et JPG 92 par défaut', () {
+      expect(DocumentImageQuality.values.length, 3);
+      expect(DocumentImageQuality.ultra.dpi, 300);
+      expect(DocumentImageQuality.high.dpi, 200);
+      const defaults = DocumentSettings();
+      expect(defaults.imageQuality, DocumentImageQuality.high);
+      expect(defaults.jpgQuality, 92);
+      expect(DocumentSettings.currentVersion, 2);
+    });
+
+    test('migration v1 : les anciens défauts (standard / 85) passent à v2',
+        () {
+      final migrated = DocumentSettings.fromJson(const <String, dynamic>{
+        'version': 1,
+        'businessName': 'Ancienne Boutique',
+        'imageQuality': 'standard',
+        'jpgQuality': 85,
+      });
+      expect(migrated.imageQuality, DocumentImageQuality.high);
+      expect(migrated.jpgQuality, 92);
+      // Le reste des réglages est conservé.
+      expect(migrated.businessName, 'Ancienne Boutique');
+      // La relecture du JSON produit par la v2 ne migre plus.
+      final reread =
+          DocumentSettings.fromJson(jsonDecode(jsonEncode(migrated.toJson())));
+      expect(reread, migrated);
+    });
+
+    test('migration v1 : une valeur choisie par l’utilisateur est conservée',
+        () {
+      final ultra = DocumentSettings.fromJson(const <String, dynamic>{
+        'version': 1,
+        'imageQuality': 'ultra',
+        'jpgQuality': 85,
+      });
+      expect(ultra.imageQuality, DocumentImageQuality.ultra);
+      expect(ultra.jpgQuality, 85);
+
+      final jpg90 = DocumentSettings.fromJson(const <String, dynamic>{
+        'version': 1,
+        'imageQuality': 'standard',
+        'jpgQuality': 90,
+      });
+      expect(jpg90.imageQuality, DocumentImageQuality.standard);
+      expect(jpg90.jpgQuality, 90);
+
+      // Déjà en v2 : plus aucune migration, même avec les anciens défauts.
+      final v2 = DocumentSettings.fromJson(const <String, dynamic>{
+        'version': 2,
+        'imageQuality': 'standard',
+        'jpgQuality': 85,
+      });
+      expect(v2.imageQuality, DocumentImageQuality.standard);
+      expect(v2.jpgQuality, 85);
+    });
+
+    test('JSON corrompu ou absent : nouveaux défauts', () {
+      expect(DocumentSettings.fromJson(const <String, dynamic>{}),
+          DocumentSettings.defaults());
+      final corrupted = DocumentSettings.fromJson(const <String, dynamic>{
+        'version': 'deux',
+        'imageQuality': 42,
+        'jpgQuality': 'haute',
+      });
+      expect(corrupted.imageQuality, DocumentImageQuality.high);
+      expect(corrupted.jpgQuality, 92);
     });
 
     test('mauvais types : défauts sans exception', () {
@@ -221,6 +290,8 @@ void main() {
         showQr: true,
         template: DocumentTemplate.minimal,
         accentColor: 0xFF15803D,
+        imageQuality: DocumentImageQuality.ultra,
+        jpgQuality: 96,
       );
       await service.saveSettings(exported);
 
@@ -239,9 +310,14 @@ void main() {
       expect(stored['businessName'], 'Boutique Exportée');
       expect(stored['showQr'], isTrue);
       expect(stored['template'], 'minimal');
+      expect(stored['imageQuality'], 'ultra');
+      expect(stored['jpgQuality'], 96);
       // Le notifier est rafraîchi : l'aperçu repart des bonnes valeurs.
       expect(DocumentSettingsService.settingsNotifier.value.template,
           DocumentTemplate.minimal);
+      expect(DocumentSettingsService.settingsNotifier.value.imageQuality,
+          DocumentImageQuality.ultra);
+      expect(DocumentSettingsService.settingsNotifier.value.jpgQuality, 96);
     });
 
     test('sauvegarde antérieure sans réglages du document : pas de crash',

@@ -44,7 +44,8 @@ enum DocumentImageFormat {
 /// Qualité (résolution) des images générées.
 enum DocumentImageQuality {
   standard('Standard', 150),
-  high('Haute', 200);
+  high('Haute', 200),
+  ultra('Ultra', 300);
 
   const DocumentImageQuality(this.label, this.dpi);
 
@@ -56,7 +57,7 @@ enum DocumentImageQuality {
   static DocumentImageQuality fromName(String? name) =>
       DocumentImageQuality.values.firstWhere(
         (value) => value.name == name,
-        orElse: () => DocumentImageQuality.standard,
+        orElse: () => DocumentImageQuality.high,
       );
 }
 
@@ -83,8 +84,8 @@ enum DocumentQrContent {
 /// valide, sans jamais lever d'exception.
 @immutable
 class DocumentSettings {
-  /// Version du schéma JSON enregistré.
-  static const int currentVersion = 1;
+  /// Version du schéma JSON enregistré (v2 : qualités d'image relevées).
+  static const int currentVersion = 2;
 
   /// Logo utilisé tant que l'utilisateur n'en a pas choisi un autre.
   static const String defaultLogoAsset = 'assets/watermark/logo.png';
@@ -153,7 +154,7 @@ class DocumentSettings {
   final DocumentImageFormat imageFormat;
   final DocumentImageQuality imageQuality;
 
-  /// Qualité JPEG (70 à 95).
+  /// Qualité JPEG (70 à 98).
   final int jpgQuality;
 
   const DocumentSettings({
@@ -186,8 +187,8 @@ class DocumentSettings {
     this.template = DocumentTemplate.modern,
     this.accentColor = 0xFF2563EB,
     this.imageFormat = DocumentImageFormat.a4,
-    this.imageQuality = DocumentImageQuality.standard,
-    this.jpgQuality = 85,
+    this.imageQuality = DocumentImageQuality.high,
+    this.jpgQuality = 92,
   });
 
   factory DocumentSettings.defaults() => const DocumentSettings();
@@ -335,7 +336,23 @@ class DocumentSettings {
 
     final rawJpg = json['jpgQuality'];
     final jpgQuality =
-        rawJpg is num ? rawJpg.round().clamp(70, 95) : fallback.jpgQuality;
+        rawJpg is num ? rawJpg.round().clamp(70, 98) : fallback.jpgQuality;
+
+    // Migration des réglages : un JSON d'avant la v2 qui porte encore les
+    // anciens défauts (Standard + JPG 85), jamais personnalisés, passe aux
+    // nouveaux (Haute + JPG 92). Toute valeur choisie par l'utilisateur est
+    // conservée telle quelle.
+    final rawVersion = json['version'];
+    final storedVersion = rawVersion is num ? rawVersion.toInt() : 1;
+    var imageQuality =
+        DocumentImageQuality.fromName(readEnumName('imageQuality'));
+    var resolvedJpgQuality = jpgQuality;
+    if (storedVersion < currentVersion &&
+        imageQuality == DocumentImageQuality.standard &&
+        resolvedJpgQuality == 85) {
+      imageQuality = DocumentImageQuality.high;
+      resolvedJpgQuality = 92;
+    }
 
     final rawAccent = json['accentColor'];
     final accentColor =
@@ -381,9 +398,8 @@ class DocumentSettings {
       accentColor: accentColor,
       imageFormat:
           DocumentImageFormat.fromName(readEnumName('imageFormat')),
-      imageQuality:
-          DocumentImageQuality.fromName(readEnumName('imageQuality')),
-      jpgQuality: jpgQuality,
+      imageQuality: imageQuality,
+      jpgQuality: resolvedJpgQuality,
     );
   }
 

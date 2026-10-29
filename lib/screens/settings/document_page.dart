@@ -783,6 +783,15 @@ class _DocumentSettingsPageState extends State<DocumentSettingsPage> {
             onTap: () => _save(settings.copyWith(imageQuality: quality)),
           ),
         ),
+      const SizedBox(height: AppSpacing.xs),
+      Text(
+        'Pour une netteté parfaite sur WhatsApp, envoyez le PDF ou joignez '
+        'l’image comme Document : WhatsApp recompresse les photos.',
+        style: Theme.of(context)
+            .textTheme
+            .bodySmall
+            ?.copyWith(color: colors.textMuted),
+      ),
       const SizedBox(height: AppSpacing.sm),
       Text(
         'Qualité JPG : ${settings.jpgQuality}',
@@ -793,8 +802,8 @@ class _DocumentSettingsPageState extends State<DocumentSettingsPage> {
       ),
       Slider(
         min: 70,
-        max: 95,
-        divisions: 25,
+        max: 98,
+        divisions: 28,
         value: settings.jpgQuality.toDouble(),
         label: '${settings.jpgQuality}',
         onChanged: (value) =>

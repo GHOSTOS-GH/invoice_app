@@ -653,6 +653,7 @@ void main() {
     expect(partial.businessName, 'Ancien');
     expect(partial.template, DocumentTemplate.modern);
     expect(partial.showLogo, isTrue);
-    expect(partial.imageQuality, DocumentImageQuality.standard);
+    expect(partial.imageQuality, DocumentImageQuality.high);
+    expect(partial.jpgQuality, 92);
   });
 }

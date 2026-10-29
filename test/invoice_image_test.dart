@@ -14,8 +14,8 @@ import 'package:invoice_app/models/invoice.dart';
 import 'package:invoice_app/services/invoice_image_service.dart';
 import 'package:invoice_app/services/pdf_service.dart';
 
-/// Hauteur d'une page A4 à 150 dpi (points PDF → pixels).
-const int _a4HeightAt150Dpi = 1754;
+/// Hauteur d'une page A4 à 200 dpi (points PDF → pixels).
+const int _a4HeightAt200Dpi = 2339;
 
 Invoice _invoice({int itemCount = 3}) => Invoice(
       id: '20261012093000',
@@ -113,7 +113,7 @@ void main() {
       expect(decoded.width, _FakeRasterizer.width);
       // 300 lignes d'encre + 24 px de marge : bien plus court qu'une A4.
       expect(decoded.height, _FakeRasterizer.contentRows + 24);
-      expect(decoded.height, lessThan(_a4HeightAt150Dpi));
+      expect(decoded.height, lessThan(_a4HeightAt200Dpi));
       // Le fond est blanc (pas de transparence) : pixel du coin.
       expect(decoded.getPixel(2, 2).r, 255);
     });
@@ -144,6 +144,62 @@ void main() {
       expect(result.format, DocumentImageFormat.a4);
       final decoded = img.decodePng(result.pages.first)!;
       expect(decoded.height, _FakeRasterizer.height);
+      // Qualité par défaut : Haute (200 dpi).
+      expect(rasterizer.lastDpi, 200);
+    });
+  });
+
+  group('Garde-fou mémoire', () {
+    const longUltra = DocumentSettings(
+      imageFormat: DocumentImageFormat.long,
+      imageQuality: DocumentImageQuality.ultra,
+    );
+
+    test('une page estimée au-delà de 24 Mpx retombe sur 200 dpi', () async {
+      final invoice = _invoice(itemCount: 55);
+      final estimated = InvoiceImageService.estimatedPagePixels(
+        invoice,
+        longUltra,
+        DocumentImageFormat.long,
+        300,
+      );
+      expect(estimated, greaterThan(InvoiceImageService.maxRasterPixels));
+
+      final rasterizer = _FakeRasterizer();
+      await serviceWith(rasterizer, settings: longUltra).render(invoice);
+
+      // Repli pour cette génération seulement : le réglage reste Ultra.
+      expect(rasterizer.lastDpi, InvoiceImageService.fallbackRasterDpi);
+      expect(longUltra.imageQuality, DocumentImageQuality.ultra);
+    });
+
+    test('une page raisonnable conserve le dpi du réglage', () async {
+      final rasterizer = _FakeRasterizer();
+      await serviceWith(
+        rasterizer,
+        settings: const DocumentSettings(
+          imageFormat: DocumentImageFormat.a4,
+          imageQuality: DocumentImageQuality.ultra,
+        ),
+      ).render(_invoice());
+      expect(rasterizer.lastDpi, 300);
+    });
+
+    test('le cache distingue le repli du rendu demandé', () async {
+      final rasterizer = _FakeRasterizer();
+      final service = serviceWith(rasterizer, settings: longUltra);
+      final invoice = _invoice(itemCount: 55);
+
+      await service.render(invoice);
+      // Une qualité Standard (150 dpi) est sous le plafond : pas de repli.
+      await service.render(
+        invoice,
+        settings: longUltra.copyWith(
+          imageQuality: DocumentImageQuality.standard,
+        ),
+      );
+
+      expect(rasterizer.calls, 2);
       expect(rasterizer.lastDpi, 150);
     });
   });
@@ -251,39 +307,85 @@ void main() {
   });
 
   group('Mesures (10 articles)', () {
-    test('temps PDF / PNG / JPG', () async {
+    test('temps PDF / PNG / JPG en Haute et en Ultra', () async {
       final invoice = _invoice(itemCount: 10);
-      const settings = DocumentSettings();
       final pdfService = PdfService();
 
       final pdfWatch = Stopwatch()..start();
       final pdf = await pdfService.generatePdf(invoice);
       pdfWatch.stop();
-
-      final rasterizer = _FakeRasterizer();
-      final service = InvoiceImageService(
-        pdfService: pdfService,
-        rasterizer: rasterizer.call,
-        settingsLoader: () async => settings,
-      );
-
-      final pngWatch = Stopwatch()..start();
-      await service.render(invoice);
-      pngWatch.stop();
-
-      final jpgWatch = Stopwatch()..start();
-      await service.render(invoice, output: InvoiceOutputFormat.jpg);
-      jpgWatch.stop();
-
       debugPrint(
         'MESURE 10 articles — PDF ${pdfWatch.elapsedMilliseconds} ms · '
-        'PNG ${pngWatch.elapsedMilliseconds} ms · '
-        'JPG ${jpgWatch.elapsedMilliseconds} ms · '
-        'PDF ${pdf.length} octets',
+        '${pdf.length} octets',
       );
-
       expect(pdf.length, greaterThan(1000));
-      expect(pngWatch.elapsedMilliseconds, greaterThan(0));
-    });
+
+      for (final quality in [
+        DocumentImageQuality.high,
+        DocumentImageQuality.ultra,
+      ]) {
+        final rasterizer = _A4Rasterizer();
+        final service = InvoiceImageService(
+          pdfService: pdfService,
+          rasterizer: rasterizer.call,
+          settingsLoader: () async => DocumentSettings(imageQuality: quality),
+        );
+
+        final pngWatch = Stopwatch()..start();
+        await service.render(invoice);
+        pngWatch.stop();
+
+        final jpgWatch = Stopwatch()..start();
+        await service.render(invoice, output: InvoiceOutputFormat.jpg);
+        jpgWatch.stop();
+
+        debugPrint(
+          'MESURE 10 articles — ${quality.label} (${quality.dpi} dpi, '
+          '${rasterizer.width}×${rasterizer.height} px) : '
+          'PNG ${pngWatch.elapsedMilliseconds} ms · '
+          'JPG ${jpgWatch.elapsedMilliseconds} ms',
+        );
+        if (quality == DocumentImageQuality.ultra &&
+            pngWatch.elapsedMilliseconds > 4000) {
+          debugPrint(
+            'MESURE Ultra : PNG dépasse 4 s '
+            '(${pngWatch.elapsedMilliseconds} ms) — signalé, option conservée.',
+          );
+        }
+
+        expect(pngWatch.elapsedMilliseconds, greaterThan(0));
+        expect(rasterizer.lastDpi, quality.dpi.toDouble());
+      }
+    }, timeout: const Timeout(Duration(minutes: 3)));
   });
+}
+
+/// Rasteriseur pleine résolution : une page A4 aux dimensions réelles du dpi
+/// demandé, avec quelques lignes d'encre (facture).
+class _A4Rasterizer {
+  int width = 0;
+  int height = 0;
+  double lastDpi = 0;
+
+  Future<List<InvoiceRasterPage>> call(Uint8List pdf, double dpi) async {
+    lastDpi = dpi;
+    width = (595.28 / 72 * dpi).round();
+    height = (841.89 / 72 * dpi).round();
+    final rgba = Uint8List(width * height * 4)
+      ..fillRange(0, width * height * 4, 255);
+    // Quelques lignes pleines : assez d'encre pour un rendu réaliste, assez
+    // peu pour que l'encodage reste rapide.
+    for (var y = 40; y < height * 2 ~/ 3; y += 24) {
+      final rowStart = y * width * 4;
+      for (var x = 40; x < width - 40; x++) {
+        final i = rowStart + x * 4;
+        rgba[i] = 30;
+        rgba[i + 1] = 60;
+        rgba[i + 2] = 120;
+      }
+    }
+    return [
+      InvoiceRasterPage(width: width, height: height, rgba: rgba),
+    ];
+  }
 }
