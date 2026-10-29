@@ -226,4 +226,36 @@ void main() {
     );
     expect(priceInput.controller!.text, '1200');
   });
+
+  testWidgets('ajout sans prix en édition : ligne à 1 FCFA, total recalculé',
+      (tester) async {
+    _resetData();
+    await _pumpDetail(tester, _invoiceTemplate());
+    await _enterEditMode(tester);
+
+    await tester.tap(find.text('Ajouter un article'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appuyez pour choisir un produit'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Riz parfumé'));
+    await tester.pumpAndSettle();
+
+    // Prix laissé vide : 1 FCFA par défaut, la quantité reste obligatoire.
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Quantité *'),
+      '4',
+    );
+    await tester.ensureVisible(find.text('Ajouter l\'article'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ajouter l\'article'));
+    await tester.pumpAndSettle();
+
+    final prices = find.widgetWithText(TextField, 'Prix unitaire');
+    expect(prices, findsNWidgets(4));
+    expect(_fieldText(tester, prices.at(3)), '1');
+    // Total recalculé en direct : 1000 + 4000 + 4500 + 4 × 1.
+    expect(find.text(formatCurrency(9504)), findsOneWidget);
+    expect(InvoiceRepository().invoices.single.items.length, 3,
+        reason: 'rien n\'est enregistré avant Enregistrer');
+  });
 }

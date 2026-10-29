@@ -375,6 +375,7 @@ class _ShareInvoiceScreenState extends State<ShareInvoiceScreen> {
   }
 
   Widget _outputSelector() {
+    final colors = AppColors.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -400,6 +401,15 @@ class _ShareInvoiceScreenState extends State<ShareInvoiceScreen> {
                 ),
             ],
           ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Pour une netteté parfaite sur WhatsApp, envoyez le PDF ou joignez '
+          'l’image comme Document : WhatsApp recompresse les photos.',
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: colors.textMuted),
         ),
       ],
     );

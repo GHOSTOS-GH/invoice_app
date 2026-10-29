@@ -55,6 +55,7 @@ class HistoryScreenState extends State<HistoryScreen>
   bool _isLoading = true;
   bool _loadingError = false;
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
   String _searchQuery = '';
   bool _isSelectionMode = false;
   Set<String> _selectedIds = {};
@@ -93,6 +94,7 @@ class HistoryScreenState extends State<HistoryScreen>
     _repository.removeListener(_onRepositoryChanged);
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _searchFocus.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -236,6 +238,8 @@ class HistoryScreenState extends State<HistoryScreen>
       DateFormat('dd/MM/yyyy', 'fr_FR').format(date);
 
   void _openInvoiceDetail(Invoice invoice) {
+    // Le clavier ne doit pas suivre la navigation ni se rouvrir au retour.
+    FocusScope.of(context).unfocus();
     Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 220),
@@ -535,7 +539,10 @@ class HistoryScreenState extends State<HistoryScreen>
         children: [
           TextField(
             controller: _searchController,
+            focusNode: _searchFocus,
             textInputAction: TextInputAction.search,
+            // Toucher ailleurs ferme le clavier de la recherche.
+            onTapOutside: (_) => _searchFocus.unfocus(),
             decoration: InputDecoration(
               hintText: 'Rechercher par client, article, notes, n°...',
               prefixIcon: const Icon(Icons.search, size: 20),

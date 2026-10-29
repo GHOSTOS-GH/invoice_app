@@ -123,7 +123,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
   // Erreurs de saisie affichées sous les champs (la saisie reste ouverte).
   String? _quantityError;
-  String? _priceError;
   String? _discountError;
   String? _taxRateError;
 
@@ -200,7 +199,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       _discountError = null;
       _taxRateError = null;
       _quantityError = null;
-      _priceError = null;
       _showItemErrors = false;
       _isAddingItem = false;
       _selectedProduct = null;
@@ -319,14 +317,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
   void _addNewItem() {
     final quantity = int.tryParse(_quantityController.text.trim());
-    final price = int.tryParse(_priceController.text.trim());
+    final rawPrice = int.tryParse(_priceController.text.trim());
+    // Prix vide ou nul : 1 FCFA par défaut (choix utilisateur), modifiable
+    // ensuite comme n'importe quelle ligne.
+    final price = (rawPrice == null || rawPrice <= 0) ? 1 : rawPrice;
 
     setState(() {
       _quantityError = (quantity == null || quantity <= 0)
           ? 'Quantité obligatoire (entier supérieur à 0)'
-          : null;
-      _priceError = (price == null || price <= 0)
-          ? 'Prix obligatoire (entier supérieur à 0)'
           : null;
     });
 
@@ -335,13 +333,13 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       return;
     }
 
-    // Saisie invalide : le panneau reste ouvert et l'article n'est pas ajouté.
-    if (_quantityError != null || _priceError != null) return;
+    // Quantité invalide : le panneau reste ouvert, l'article n'est pas ajouté.
+    if (_quantityError != null) return;
 
     final item = InvoiceItem(
       name: _selectedProduct!.name,
       quantity: quantity!,
-      unitPrice: price!,
+      unitPrice: price,
     );
     setState(() {
       _draftItems.add(_ItemDraft.fromItem(item));
@@ -351,7 +349,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       _quantityController.clear();
       _priceController.clear();
       _quantityError = null;
-      _priceError = null;
     });
   }
 
@@ -454,15 +451,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
             controller: _priceController,
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            onChanged: (_) {
-              if (_priceError != null) {
-                setState(() => _priceError = null);
-              }
-            },
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               labelText: 'Prix unitaire (FCFA)',
-              prefixIcon: const Icon(Icons.payments_outlined, size: 20),
-              errorText: _priceError,
+              prefixIcon: Icon(Icons.payments_outlined, size: 20),
+              helperText: 'Laisser vide = 1 FCFA (à modifier plus tard)',
             ),
           ),
           LastPriceHint(

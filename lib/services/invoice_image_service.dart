@@ -220,6 +220,13 @@ class InvoiceImageService implements InvoiceImageRenderer {
   /// Marge blanche conservée sous le contenu (format « long »), en pixels.
   static const int longBottomPadding = 24;
 
+  /// Garde-fou mémoire : au-delà de 24 millions de pixels pour une page,
+  /// la génération retombe sur [fallbackRasterDpi] (sans toucher au réglage).
+  static const int maxRasterPixels = 24000000;
+
+  /// Résolution de repli quand une page serait trop grande à rastériser.
+  static const double fallbackRasterDpi = 200;
+
   final PdfService _pdfService;
   final InvoiceRasterizer _rasterizer;
   final Future<DocumentSettings> Function() _settingsLoader;
@@ -293,8 +300,13 @@ class InvoiceImageService implements InvoiceImageRenderer {
       forcedA4 = true;
     }
 
-    final dpi = effectiveSettings.imageQuality.dpi.toDouble();
-    final quality = (jpgQuality ?? effectiveSettings.jpgQuality).clamp(70, 95);
+    final dpi = effectiveRasterDpi(
+      invoice,
+      effectiveSettings,
+      format,
+      effectiveSettings.imageQuality.dpi.toDouble(),
+    );
+    final quality = (jpgQuality ?? effectiveSettings.jpgQuality).clamp(70, 98);
     final encodeKey =
         output == InvoiceOutputFormat.jpg ? 'jpg:$quality' : 'png';
 
@@ -344,6 +356,37 @@ class InvoiceImageService implements InvoiceImageRenderer {
       format: format,
       forcedA4: forcedA4,
     );
+  }
+
+  /// Résolution réellement utilisée pour rastériser [format] : le dpi du
+  /// réglage, sauf si une page dépasserait [maxRasterPixels] pixels.
+  @visibleForTesting
+  static double effectiveRasterDpi(
+    Invoice invoice,
+    DocumentSettings settings,
+    DocumentImageFormat format,
+    double dpi,
+  ) {
+    final pixels = estimatedPagePixels(invoice, settings, format, dpi);
+    if (pixels <= maxRasterPixels) return dpi;
+    debugPrint(
+      'InvoiceImageService : page estimée à '
+      '${(pixels / 1000000).toStringAsFixed(1)} Mpx en ${dpi.round()} dpi, '
+      'repli à ${fallbackRasterDpi.round()} dpi pour cette génération',
+    );
+    return fallbackRasterDpi;
+  }
+
+  /// Pixels d'une page rastérisée (largeur × hauteur estimées, format réel).
+  @visibleForTesting
+  static double estimatedPagePixels(
+    Invoice invoice,
+    DocumentSettings settings,
+    DocumentImageFormat format,
+    double dpi,
+  ) {
+    final page = InvoicePdfBuilder.resolvePageFormat(invoice, settings, format);
+    return (page.width / 72 * dpi) * (page.height / 72 * dpi);
   }
 
   Future<_CachedDocument> _buildDocument(
