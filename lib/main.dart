@@ -13,6 +13,7 @@ import 'services/invoice_repository.dart';
 import 'services/product_image_store.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
+import 'utils/focus_observer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -69,6 +70,7 @@ class _InvoiceAppState extends State<InvoiceApp> {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: _themeController.value,
+      navigatorObservers: [UnfocusNavigatorObserver()],
       home: const AuthChecker(),
     );
   }
@@ -152,7 +154,11 @@ class _MainScreenState extends State<MainScreen> {
       body: LazyIndexedStack(index: _currentIndex, children: screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        onDestinationSelected: (index) {
+          // Changer d'onglet ne doit jamais rouvrir le clavier.
+          FocusManager.instance.primaryFocus?.unfocus();
+          setState(() => _currentIndex = index);
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.receipt_outlined),
